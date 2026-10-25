@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Dokument** | Hardware-Konzept (Grundlage für Prototyp und Schaltplan) |
-| **Version** | 0.1 (Entwurf) |
+| **Version** | 0.2 (Entwurf) – Entscheidungen zu Board, Akku und Schaltausgang eingearbeitet |
 | **Datum** | 2026-10-25 |
 | **Bezug** | [ANFORDERUNGEN.md](ANFORDERUNGEN.md) v0.2 |
 | **Einsatzschwerpunkt** | IPSC-Training in der Halle und am Stand mit mehreren Schützen |
@@ -62,7 +62,6 @@ flowchart LR
 
     SPI --> TFT["IPS-TFT 2,0''<br/>ST7789, 240×320"]
     GPIO --> BTN["START + 4 Menütasten"]
-    GPIO --> OUT["Optional: Schaltausgang<br/>3,5-mm-Klinke"]
     LDO --> MCU
     LDO --> Analog
     LDO --> TFT
@@ -79,7 +78,8 @@ flowchart LR
 | **Gewählt** | ESP32-S3-DevKitC-1 (oder baugleicher Klon) mit Modul **ESP32-S3-WROOM-1 N8R2 / N16R8** |
 | Begründung | Zwei Kerne (Erkennung auf Kern 1, UI und Funk auf Kern 0), ADC im Dauerbetrieb mit DMA, native USB-Schnittstelle, BLE 5 und WLAN, ausreichend Flash für ≥ 100 Strings, günstig (ca. 6–8 €). |
 | Verworfen | ESP32 (klassisch): geht, aber der ADC ist ungenauer und es gibt kein natives USB. ESP32-C3: nur ein Kern und weniger GPIOs. |
-| Alternative Schnellstart | **LilyGO T-Display-S3** (ESP32-S3 + 1,9"-ST7789 + LiPo-Lader auf einer Platine, ca. 15–20 €). Weniger Verdrahtung, aber teurer, weniger freie GPIOs und ein fest vorgegebenes Display. Für einen ersten Funktionstest gut geeignet. |
+| Verworfen (v0.2) | **LilyGO T-Display-S3** (ESP32-S3 + 1,9"-Display + Lader auf einer Platine). Weniger Verdrahtung, aber: Das Display hängt an einem parallelen Bus, der viele GPIOs belegt; es bleiben nur wenige Pins frei. Display und Lader sind fest vorgegeben und nicht tauschbar, die Pinbelegung lässt sich nicht auf eine eigene Platine übertragen, und es ist teurer. |
+| Begründung der Wahl | **Erweiterbarkeit:** viele freie GPIOs (u. a. ADC1 für weitere Sensoren), Display tauschbar (z. B. später Sharp Memory LCD), jedes Modul einzeln ersetzbar. Die Pinbelegung aus Kap. 5 gilt unverändert für die eigene Platine (V2) mit aufgelötetem ESP32-S3-WROOM-1, und die Firmware läuft ohne Änderung weiter. |
 
 **Taktung:** 80–160 MHz, Funk standardmäßig aus (F-084). Der ADC-DMA läuft unabhängig von der CPU-Last.
 
@@ -122,7 +122,7 @@ Alle Taster schalten gegen GND, interne Pull-ups (im Deep-Sleep die RTC-Pull-ups
 
 | Baugruppe | Bauteil | Bemerkung |
 |---|---|---|
-| Akku | LiPo 1S, **2000 mAh**, z. B. Bauform 103450 (ca. 50 × 34 × 10 mm) | mit Schutzplatine; alternativ 18650 (größer, günstiger) |
+| Akku | **Flacher LiPo 1S, 2000 mAh**, Bauform 103450 (ca. 50 × 34 × 10 mm) | mit Schutzplatine und JST-PH-Stecker; entschieden in v0.2 |
 | Lader | **TP4056**-Modul mit USB-C und DW01-Schutz | Ladestrom per Widerstand auf ca. 0,5–1 A |
 | Load-Sharing | P-MOSFET AO3401 + Schottky SS14 + 100 kΩ | Bei angestecktem USB versorgt USB das System, der Akku wird sauber geladen und der Lader schaltet korrekt ab |
 | Spannungsregler | **HT7833** (3,3 V, 500 mA, ca. 4 µA Ruhestrom) | speist den 3,3-V-Pin des Dev-Boards; dessen eigener Regler bleibt ohne USB unversorgt |
@@ -131,9 +131,9 @@ Alle Taster schalten gegen GND, interne Pull-ups (im Deep-Sleep die RTC-Pull-ups
 
 **Hinweis Prototyp:** Das Dev-Board hat einen eigenen USB-Anschluss zum Programmieren. Im Prototyp gibt es deshalb zwei USB-Buchsen (Programmieren am Board, Laden am TP4056). Ab der eigenen Platine (V2) wird eine einzige USB-C-Buchse für beides verwendet (native USB des ESP32-S3 an GPIO 19/20).
 
-### 3.6 Optionaler Schaltausgang
+### 3.6 Schaltausgang
 
-GPIO 47 → N-MOSFET 2N7002 (Open-Drain) → 3,5-mm-Klinke. Für externe Lampen, Relais oder einen Zusatzlautsprecher. In V1 nur als Bestückungsoption vorgesehen (F-066 hat die Priorität Kann).
+Entfällt (Entscheidung v0.2, wird nicht benötigt). GPIO 47 bleibt als Reserve frei; ein späterer Ausgang ließe sich dort mit einem N-MOSFET nachrüsten.
 
 ---
 
@@ -237,9 +237,8 @@ Gemieden werden: Strapping-Pins (GPIO 0, 3, 45, 46), USB (19, 20), Flash/PSRAM (
 | 40 | Piezo-Treiber IN2 | LEDC-Ausgang | gegenphasig |
 | 41 | DRV8833 nSLEEP | Ausgang | |
 | 42 | Boost-Freigabe (High-Side-Schalter) | Ausgang | |
-| 47 | Schaltausgang (optional) | Ausgang | 2N7002 Open-Drain |
 
-Frei als Reserve: GPIO 6, 48 (bzw. 38) u. a.
+Frei als Reserve: GPIO 6 (vorgesehen für die Abschaltung des Analogteils, Kap. 6), 47, 48 (bzw. 38) u. a.
 
 ---
 
@@ -287,7 +286,7 @@ Frei als Reserve: GPIO 6, 48 (bzw. 38) u. a.
 | 18 | Gürtelclip (gedruckt oder gekauft) | 1 | 0,50 € |
 | | **Summe** | | **ca. 35 €** |
 
-Optional: 3,5-mm-Klinkenbuchse + 2N7002 für den Schaltausgang (+0,50 €), analoges MEMS-Mikrofon als Upgrade (+2–4 €), LilyGO T-Display-S3 statt Pos. 1, 2, 10, 11 (Schnellstart, ca. +5 €).
+Optional: analoges MEMS-Mikrofon als Upgrade (+2–4 €).
 
 → Kostenziel N-050 (≤ 40 €) wird mit Reserve eingehalten.
 
@@ -343,10 +342,12 @@ Optional: 3,5-mm-Klinkenbuchse + 2N7002 für den Schaltausgang (+0,50 €), anal
 
 ---
 
-## 11. Offene Entscheidungen für den nächsten Schritt
+## 11. Entscheidungen
 
-1. Schnellstart mit **LilyGO T-Display-S3** oder direkt mit **DevKitC-1 + separatem Display**?
-2. Akku: **LiPo 103450** (kompakt) oder **18650** (günstiger, größer)?
-3. Ist der optionale **Schaltausgang** in V1 gewünscht?
+| Nr. | Frage | Entscheidung (v0.2) |
+|---|---|---|
+| 1 | Board | **ESP32-S3-DevKitC-1 + separates 2,0"-IPS-TFT** (erweiterbar, Pinbelegung auf eigene Platine übertragbar) |
+| 2 | Akku | **Flacher LiPo 103450, 2000 mAh** |
+| 3 | Schaltausgang | **Entfällt** |
 
-Danach: Schaltplan der Eingangsstufe und der Beep-Stufe für das Steckbrett (Phase 1 und 2) sowie Mess-Firmware für den Mitschnitt der Hüllkurve.
+Nächster Schritt: Schaltplan der Eingangsstufe und der Beep-Stufe für das Steckbrett (Phase 1 und 2) sowie Mess-Firmware für den Mitschnitt der Hüllkurve.
