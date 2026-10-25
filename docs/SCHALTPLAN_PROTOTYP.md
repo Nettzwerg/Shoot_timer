@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Dokument** | Schaltpläne für den Steckbrett-Prototyp, Inbetriebnahme, Messablauf |
-| **Version** | 0.1 (Entwurf) |
+| **Version** | 0.2 (Entwurf) – Messung am Stand ohne Laptop (Standalone-Modus) |
 | **Datum** | 2026-10-25 |
 | **Bezug** | [HARDWARE_KONZEPT.md](HARDWARE_KONZEPT.md) v0.2, Mess-Firmware [`firmware/mess`](../firmware/mess), Logger [`tools/mess_logger.py`](../tools/mess_logger.py) |
 
@@ -123,6 +123,8 @@ Die Kapsel sitzt in einem kleinen Halter, z. B. einem gedruckten Röhrchen. Geme
 | A | Kapsel offen | 0 dB (Referenz, wird beim eigenen Schuss wahrscheinlich übersteuern) |
 | B | Kapsel hinter 5 mm offenporigem Schaumstoff | gering, einige dB |
 | C | Kapsel in geschlossener Kammer (ca. Ø 12 × 8 mm), Zugang nur über eine Öffnung Ø 1 mm | deutlich, Größenordnung 10–20 dB |
+
+Für den Standtermin B und C als **aufsteckbare Kappen** für den Mikrofonhalter drucken. Dann lässt sich die Variante ohne Werkzeug wechseln.
 
 ### 2.5 Steckbrett-Hinweise
 
@@ -273,9 +275,9 @@ Die Mess-Firmware liegt unter [`firmware/mess`](../firmware/mess) (ESP-IDF über
 
 Alternativ in der Kommandozeile: `pio run -t upload` im Ordner `firmware/mess`.
 
-> Stand: Der Quellcode wurde mit ESP-IDF 5.3.1 (Ziel ESP32-S3) ohne Fehler und Warnungen kompiliert. Auf echter Hardware ist er noch **nicht** getestet.
+> Stand: Der Quellcode (inkl. Standalone-Modus) wurde mit ESP-IDF 5.3.1 (Ziel ESP32-S3) ohne Fehler und Warnungen kompiliert. Auf echter Hardware ist er noch **nicht** getestet.
 
-### 5.2 Logger am Laptop
+### 5.2 Logger am Laptop (zu Hause; am Stand optional)
 
 ```
 pip install pyserial matplotlib
@@ -302,6 +304,10 @@ Alles, was der Timer sendet, landet mit Zeitstempel in `messungen/messung_<Datum
 | `x` | Timer-Durchgang beenden |
 | `p 0/1` | Boostwandler aus/ein |
 | `a 0/1` | Analogteil aus/ein |
+| `m` | nächste Situation markieren (wie Taste BOOT kurz) |
+| `i` | Speicherbelegung im Flash |
+| `F` | alle gespeicherten Sitzungen ausgeben (nutzt `mess_logger.py download`) |
+| `X` | alle gespeicherten Sitzungen löschen, Situationszähler auf 0 |
 
 Ausgabe je Schuss (CSV): `SHOT,<Nr>,<Zeit s>,<Split s>,<Pegel dBFS>,<Anstieg ms>,<LOW>,<HIGH>,<HIGH übersteuert>`.
 
@@ -311,23 +317,70 @@ Ausgabe je Schuss (CSV): `SHOT,<Nr>,<Zeit s>,<Split s>,<Pegel dBFS>,<Anstieg ms>
 
 ## 6. Messablauf Phase 1 am Stand
 
-**Vorher klären:** Erlaubnis der Standaufsicht. Laptop und Steckbrett **hinter** der Feuerlinie, Mikrofon an der Leitung in Position. Nur die Mikrofonposition wird verändert, wenn die Bahn freigegeben ist.
+### 6.1 Standalone-Betrieb – kein Laptop nötig
 
-1. Aufbau prüfen (Kap. 2.6), Logger starten, `t -45` (niedrige Schwelle, damit auch Nachbarschüsse erfasst werden), `c 1` für die ersten Schüsse jeder Situation.
-2. Für **jede Dämpfungsvariante A, B, C** (Kap. 2.4):
+Am Stand braucht es **keinen Laptop**. Die Mess-Firmware speichert alles im Flash des ESP32 (ca. 6 MB):
 
-   | Markierung (Beispiel) | Situation | Schüsse |
-   |---|---|---|
-   | `!A eigen 9mm 0.5m` | Mikrofon am Gürtel des Schützen (Holsterposition) | 5–10 |
-   | `!A eigen 9mm 1m` | Mikrofon in Hand der Standaufsicht hinter dem Schützen | 5–10 |
-   | `!A nachbar 9mm 1bahn` | eigener Schütze schießt nicht, Nachbar auf der nächsten Bahn | 5–10 |
-   | `!A nachbar 9mm 2bahn` | Nachbar zwei Bahnen weiter | 5–10 |
-   | `!A eigen 22lr 0.5m` | falls verfügbar | 5 |
+- jede Schussmeldung (`SHOT`), jeden Beep und jede Markierung,
+- die **ersten 3 Mitschnitte nach jeder Markierung** (je 0,5 s Signalverlauf).
 
-3. Ein paar Durchgänge mit `g` (Beep + Schussfolge), um die Split-Erkennung zu prüfen (z. B. Doublette, Bill Drill).
-4. Auswertung: `python tools/mess_logger.py summary messungen/messung_*.log`
+Ausgelesen wird zu Hause mit `mess_logger.py download`. Bedient wird der Aufbau am Stand nur über die Taste **BOOT** des DevKits:
 
-### 6.1 Bewertung
+| Taste BOOT | Wirkung | Quittung |
+|---|---|---|
+| beim Einschalten | – (nicht drücken, sonst startet der ESP32 im Programmiermodus) | **2 kurze Töne** = bereit, Speicher ok; **1 langer Ton** = Speicherfehler |
+| kurz drücken | nächste **Situation** markieren (1, 2, 3 …) | Situationsnummer als Tonfolge: je 5 ein langer Ton, je 1 ein kurzer Ton (z. B. 7 = lang, kurz, kurz) |
+| 1,5 s halten | **Timer-Durchgang**: zufällige Verzögerung 2–4 s, dann Start-Beep | Start-Beep |
+
+- Der Situationszähler bleibt auch erhalten, wenn die Powerbank abgezogen wird. Er wird erst mit dem Befehl `X` (oder `download --erase`) zurückgesetzt.
+- Jede Stromunterbrechung beginnt eine neue Sitzung im Speicher. Daten gehen dabei nicht verloren.
+- Die Schwelle steht ab Werk auf −45 dBFS (niedrig), damit auch Nachbarschüsse erfasst werden.
+- **Voraussetzung:** Die Beep-Stufe (Phase 2) muss aufgebaut sein, sonst gibt es keine Quittungstöne. Ohne Beep-Stufe funktioniert die Messung trotzdem, aber die Situationsnummern müssen dann gezählt werden.
+
+**Vor dem Standtermin zu Hause:**
+
+1. Firmware flashen, Aufbau prüfen (Kap. 2.6), Speicher leeren: `python tools/mess_logger.py download --port COM5 --erase`.
+2. Probelauf mit Klatschen: einschalten → 2 Töne, BOOT kurz → 1 Ton, klatschen, BOOT kurz → 2 Töne, klatschen. Auslesen und mit `summary` prüfen.
+3. Messprotokoll (Kap. 6.3) ausdrucken.
+
+**Aufbau am Stand:** Steckbrett und Powerbank in eine kleine Box (z. B. Frischhaltedose) hinter der Feuerlinie. Das Mikrofon hängt an der 1–2 m langen Leitung und wird je Situation positioniert. **Erlaubnis der Standaufsicht einholen.** Mikrofon und Box nur bei freigegebener Bahn umstellen.
+
+> **Powerbank:** Manche Powerbanks schalten bei geringer Stromaufnahme (< 50–100 mA) nach einigen Sekunden ab. Vorher zu Hause testen: läuft der Aufbau 15 min durch? Sonst eine Powerbank mit „Low-Current“- bzw. Kleingerätemodus verwenden.
+
+### 6.2 Ablauf
+
+1. Powerbank anstecken → 2 kurze Töne abwarten.
+2. Für jede Zeile des Messprotokolls: Situation herstellen, **BOOT kurz** drücken, Tonfolge mitzählen, dann die angegebenen Schüsse abgeben. Den Haken im Protokoll setzen.
+3. Dämpfungsvariante wechseln (Kappe auf dem Mikrofonhalter tauschen, Kap. 2.4) und mit der nächsten Situation weitermachen.
+4. Am Ende einige **Timer-Durchgänge** (BOOT 1,5 s halten) mit Doublette oder Bill Drill, um die Split-Erkennung zu prüfen. Vorher eine eigene Situation markieren.
+5. Zu Hause auslesen und auswerten:
+
+   ```
+   python tools/mess_logger.py download --port COM5
+   python tools/mess_logger.py summary messungen/flash_*.log --protokoll protokoll.txt
+   python tools/mess_logger.py plot messungen/cap_flash_<...>.csv
+   ```
+
+   `protokoll.txt` enthält die Zeilen des Messprotokolls im Format `1 = A eigen 9mm 0.5m`.
+
+**Variante mit Laptop oder Smartphone:** Wer doch ein Gerät mitnehmen kann, startet `mess_logger.py log` und sieht jeden Schuss sofort. Unter Android geht auch eine USB-Terminal-App mit OTG-Kabel (z. B. „Serial USB Terminal“, 921600 Baud). Die Daten werden in beiden Fällen zusätzlich im Flash gespeichert.
+
+### 6.3 Messprotokoll (zum Ausdrucken)
+
+| Nr. | Dämpfung | Situation | Mikrofon-Position | Schüsse | ✔ |
+|---|---|---|---|---|---|
+| 1 | A offen | eigener Schuss 9 mm | Gürtel des Schützen (ca. 0,5 m) | 5–10 | ☐ |
+| 2 | A offen | eigener Schuss 9 mm | Hand der Standaufsicht, ca. 1 m hinter dem Schützen | 5–10 | ☐ |
+| 3 | A offen | Nachbar 9 mm, eigener Schütze schießt nicht | wie Nr. 1, Nachbar eine Bahn weiter | 5–10 | ☐ |
+| 4 | A offen | Nachbar 9 mm | wie Nr. 1, Nachbar zwei Bahnen weiter | 5–10 | ☐ |
+| 5 | A offen | eigener Schuss .22 (falls vorhanden) | wie Nr. 1 | 5 | ☐ |
+| 6–10 | B Schaumstoff | wie Nr. 1–5 | | | ☐ |
+| 11–15 | C Kammer Ø 1 mm | wie Nr. 1–5 | | | ☐ |
+| 16 | beste Variante | Timer-Durchgänge (BOOT lang): Doublette, Bill Drill | wie Nr. 1 | 3–5 Durchgänge | ☐ |
+
+Abweichungen (andere Waffe, andere Bahn, Fehlbedienung) direkt in der Zeile notieren und später in `protokoll.txt` übernehmen.
+
+### 6.4 Bewertung
 
 | Kriterium | Ziel | Wenn nicht erreicht |
 |---|---|---|
@@ -340,6 +393,8 @@ Ausgabe je Schuss (CSV): `SHOT,<Nr>,<Zeit s>,<Split s>,<Pegel dBFS>,<Anstieg ms>
 Die Ergebnisse (Summary-Ausgabe + einige Mitschnitte) bitte ins Repository unter `messungen/` legen. Daraus werden die endgültigen Werte für Dämpfung, R5/R6 und die Standardschwelle abgeleitet.
 
 ## 7. Messablauf Phase 2 (Beep)
+
+Diese Messung findet **zu Hause** mit Laptop statt; am Stand ist dafür nichts nötig.
 
 1. Piezo in ca. 30 cm Abstand vom Mikrofon (Variante A, ohne Dämpfung) aufstellen, `t 0` (keine Schussmeldungen).
 2. `w 2000 5000 100` – Frequenzgang aufnehmen; `python tools/mess_logger.py sweep messungen/messung_*.log` zeigt die lauteste Frequenz.

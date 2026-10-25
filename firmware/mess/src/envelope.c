@@ -26,7 +26,7 @@
 #define BASE_ALPHA      (1.0f / 8192.0f)        // Ruhelage, ca. 0,4 s Zeitkonstante
 
 static env_config_t s_cfg = {
-    .threshold_dbfs = -35.0f,
+    .threshold_dbfs = -45.0f,   // niedrig, damit auch Nachbarschüsse erfasst werden
     .dead_time_ms = 50,
     .ratio = 11.0f,
 };
@@ -247,7 +247,7 @@ void env_start(void)
     s_events = xQueueCreate(32, sizeof(env_event_t));
 
     adc_continuous_handle_cfg_t hcfg = {
-        .max_store_buf_size = FRAME_BYTES * 8,
+        .max_store_buf_size = FRAME_BYTES * 64,   // ca. 200 ms Puffer, überbrückt Flash-Schreibzugriffe
         .conv_frame_size = FRAME_BYTES,
     };
     ESP_ERROR_CHECK(adc_continuous_new_handle(&hcfg, &s_adc));
