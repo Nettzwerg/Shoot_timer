@@ -336,7 +336,7 @@ Optional: 3,5-mm-Klinkenbuchse + 2N7002 für den Schaltausgang (+0,50 €), anal
 |---|---|---|
 | Nachbarschüsse in der Halle zu laut bzw. Nachhall zu stark | Fehldetektionen | Zweikanal-Eingangsstufe, „Umgebung lernen“, Pegelanzeige je Schuss, Anstiegsprüfung; Rückfallebene externer Sensor |
 | Elektret-Kapsel sättigt trotz Dämpfung | eigener und fremder Schuss gleich groß | Dämpfung erhöhen, MEMS mit hohem AOP testen (Phase 1) |
-| Piezo nicht laut genug | Beep unter Gehörschutz schlecht hörbar | Resonanzkammer optimieren, anderen Piezo-Typ wählen, ggf. Treiber für höhere Spannung (z. B. 2 × DRV8833 an 12–18 V-Boost ist nicht zulässig → diskrete H-Brücke) |
+| Piezo nicht laut genug | Beep unter Gehörschutz schlecht hörbar | Resonanzkammer optimieren, anderen Piezo-Typ wählen, ggf. diskrete H-Brücke mit MOSFETs für 15–20 V Versorgung (DRV8833 ist auf 10,8 V begrenzt) |
 | Nichtlinearer ESP32-ADC | ungenaue Pegelwerte | Werkskalibrierung (eFuse) nutzen, nur relative Pegel auswerten |
 | Zwei USB-Buchsen im Prototyp | unpraktisch | in V2 eine Buchse mit nativem USB |
 | TFT in praller Sonne schwach | Ablesbarkeit outdoor | volle Helligkeit, entspiegelte Scheibe; Sharp Memory LCD als Option für V2 |
