@@ -350,4 +350,4 @@ Optional: analoges MEMS-Mikrofon als Upgrade (+2–4 €).
 | 2 | Akku | **Flacher LiPo 103450, 2000 mAh** |
 | 3 | Schaltausgang | **Entfällt** |
 
-Nächster Schritt: Schaltplan der Eingangsstufe und der Beep-Stufe für das Steckbrett (Phase 1 und 2) sowie Mess-Firmware für den Mitschnitt der Hüllkurve.
+Nächster Schritt (umgesetzt in [SCHALTPLAN_PROTOTYP.md](SCHALTPLAN_PROTOTYP.md) und `firmware/mess`): Schaltplan der Eingangsstufe und der Beep-Stufe für das Steckbrett (Phase 1 und 2) sowie Mess-Firmware für den Mitschnitt der Hüllkurve.
