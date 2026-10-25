@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Dokument** | Lastenheft / Anforderungsspezifikation |
-| **Version** | 0.1 (Entwurf) |
+| **Version** | 0.2 (Entwurf) – Schwerpunkt IPSC-Training in Halle und am Stand |
 | **Datum** | 2026-10-25 |
 | **Status** | Zur Abstimmung |
 
@@ -102,8 +102,8 @@ Anforderungen sind nach **MoSCoW** priorisiert:
 | F-035 | Zuverlässige Erkennung für Großkaliber-Kurzwaffen (9 mm, .45) indoor und outdoor. | M |
 | F-036 | Erkennung für Kleinkaliber (.22 lfB) und Luftdruck (10 m) bei hoher Sensitivität. Für Luftdruck ist ein Zusatzsensor zulässig (siehe F-037). | S |
 | F-037 | Anschluss eines externen Sensors (z. B. Klinkenbuchse für Ansteck-Mikrofon oder Erschütterungssensor/Piezo an der Waffe) für Luftdruck und Trockentraining. | K |
-| F-038 | Hilfe zur Einstellung: Anzeige des aktuellen Pegels als Balken („Mikrofon-Test“), damit der Schütze die Sensitivität kalibrieren kann. | S |
-| F-039 | Möglichkeit, Fehldetektionen bei benachbarten Schützen zu reduzieren (adaptive Schwelle oder Hinweis zur Einstellung). | K |
+| F-038 | Hilfe zur Einstellung: Anzeige des aktuellen Pegels als Balken („Mikrofon-Test“), damit der Schütze die Sensitivität kalibrieren kann. | M |
+| F-039 | Fehldetektionen durch Schützen auf Nachbarbahnen reduzieren: Auto-Kalibrierung der Schwelle anhand des Umgebungspegels, Anzeige des Spitzenpegels je Schuss im Review, Prüfung der Anstiegszeit (siehe Hardware-Konzept, Kap. 4). | M |
 
 ### 3.5 Auswertung (Review)
 
@@ -134,9 +134,9 @@ Anforderungen sind nach **MoSCoW** priorisiert:
 | F-063 | **Trockentraining (Dry Fire)** | Nur Start- und Par-Beep, keine Schusserkennung. Optional wiederholend (Auto-Repeat mit einstellbarer Pause). | M |
 | F-064 | **Wiederholung (Repetitive)** | Nach Ablauf/Ende startet automatisch nach einstellbarer Pause der nächste Durchgang. | S |
 | F-065 | **Countdown** | Feste Zeitvorgabe, Ende-Beep, optional Warn-Beeps (z. B. bei 10 s und 5 s); z. B. für Zeitserien. | S |
-| F-066 | **Duell / Rapid-Fire** (ISSF/DSB Sportpistole, Duellteil) | Zyklus: Pause (Standard 7 s) – Beep – Schusszeit (Standard 3 s) – Ende-Beep; Anzahl Zyklen einstellbar (Standard 5). Optional Ausgang für Lampen oder Wendeanlage (siehe H-060). | S |
+| F-066 | **Duell / Rapid-Fire** (ISSF/DSB Sportpistole, Duellteil) | Zyklus: Pause (Standard 7 s) – Beep – Schusszeit (Standard 3 s) – Ende-Beep; Anzahl Zyklen einstellbar (Standard 5). | K |
 | F-067 | **Zeitserien** (z. B. 25 m Schnellfeuer: 8 s / 6 s / 4 s) | Vordefinierte Abfolgen von Vorbereitungs- und Schusszeiten als auswählbare Presets. | K |
-| F-068 | **Hit Factor / Comstock** | Nach dem String Eingabe von Punkten (A/C/D/Miss/No-Shoot) und Berechnung des Hit Factors. | K |
+| F-068 | **Hit Factor / Comstock** | Nach dem String Eingabe von Punkten (A/C/D/Miss/No-Shoot) und Berechnung des Hit Factors. | S |
 | F-069 | **Benutzerdefinierte Drills** | Speichern von mindestens 10 Presets (Name, Delay, Par-Zeiten, Modus). | S |
 
 ### 3.8 Bedienung und Menü
@@ -250,7 +250,7 @@ Hauptbildschirm (Modus, letzte Zeit, Akku)
 | H-030 | **Signalgeber** | Piezo-Signalgeber (passiv, Resonanz ca. 2,7–4 kHz), angesteuert über H-Brücke oder Treiber mit erhöhter Spannung (z. B. 12 V aus Boost-Wandler) für ≥ 100 dB. Alternativ kleiner Lautsprecher + Klasse-D-Verstärker (z. B. MAX98357A). | 2–5 € |
 | H-040 | **Display** | Sonnenlichttauglich: transflektives/reflektives LCD (z. B. Sharp Memory LCD) **oder** IPS-TFT (ST7789, 1,9–2,0") mit hoher Helligkeit. OLED (SSD1306/SH1106) nur als günstige Prototyp-Variante, da outdoor schlecht ablesbar. | 3–15 € |
 | H-050 | **Tasten** | 1 große START-Taste (Ø ≥ 12 mm) + 4 Menütasten, entprellt; alternativ Drehencoder. Mindestens eine Taste kann den ESP32 aus dem Deep-Sleep wecken. | 1–3 € |
-| H-060 | **Ausgang (optional)** | Schaltausgang (Open-Drain/Optokoppler oder 3,5-mm-Klinke) für externe Lampen, Wendescheiben oder größeren Lautsprecher (Duell-Modus). | 0,5–2 € |
+| H-060 | ~~**Ausgang (optional)**~~ | Entfällt (Entscheidung v0.2). | – |
 | H-070 | **Stromversorgung** | 1S-LiPo bzw. 18650 (≥ 1500 mAh) mit Schutzschaltung, USB-C-Laderegler (z. B. TP4056 mit Schutz oder IP5306/MCP73831), LDO mit geringem Ruhestrom (z. B. HT7333/ME6211), Akkuspannungsmessung per Spannungsteiler (abschaltbar). | 4–8 € |
 | H-080 | **Ein/Aus** | Softpower (Latch-Schaltung) oder Deep-Sleep mit Wake-on-Button; optional mechanischer Hauptschalter zur Lagerung. | 0,5–1 € |
 | H-090 | **Uhrzeit** | Optional RTC (z. B. DS3231/PCF8563) oder Zeit über WLAN/NTP bzw. App für Zeitstempel der Strings. | 0–3 € |
@@ -310,8 +310,8 @@ Hauptbildschirm (Modus, letzte Zeit, Akku)
 1. **Mikrofonkonzept** (analoge Hüllkurve + Komparator vs. I²S-MEMS mit Software-Erkennung) → Steckbrett-Prototyp und Test am Stand.
 2. **Display** (Sharp Memory LCD vs. IPS-TFT vs. OLED) → Kosten gegen Ablesbarkeit abwägen.
 3. **Bedienkonzept** (5 Tasten vs. Drehencoder + 2 Tasten).
-4. **Akkuform** (18650 = günstig und ausdauernd, aber größer; LiPo-Flachzelle = kompakter).
-5. **Welche Disziplinen haben Priorität?** (IPSC/Action-Schießen, ISSF/DSB-Präzision und Duell, BDS, Luftdruck) → beeinflusst die Prioritäten der Modi F-065 bis F-068.
+4. ~~Akkuform~~ **Entschieden (v0.2):** flacher LiPo (103450, 2000 mAh).
+5. ~~Welche Disziplinen haben Priorität?~~ **Entschieden (v0.2):** IPSC-Training in der Halle und am Stand mit mehreren Schützen. Folgen: F-038 und F-039 → Muss, F-068 (Hit Factor) → Soll, F-066 (Duell) → Kann.
 6. **App/Weboberfläche** in V1 oder erst in V2.
 
 ---
