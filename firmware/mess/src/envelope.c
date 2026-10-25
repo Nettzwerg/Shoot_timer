@@ -15,11 +15,12 @@
 #define N_CH            3
 #define FRAME_PAIRS     64                      // 3,2 ms je DMA-Rahmen
 #define FRAME_BYTES     (FRAME_PAIRS * N_CH * SOC_ADC_DIGI_RESULT_BYTES)
-#define RING_PAIRS      16384                   // 0,82 s, Zweierpotenz
+#define RING_PAIRS      8192                    // 0,41 s, Zweierpotenz, > CAP_PAIRS
 #define RING_MASK       (RING_PAIRS - 1)
 #define CAP_PRE         ENV_MS_TO_SAMPLES(50)
-#define CAP_POST        ENV_MS_TO_SAMPLES(450)
+#define CAP_POST        ENV_MS_TO_SAMPLES(300)
 #define CAP_PAIRS       (CAP_PRE + CAP_POST)
+_Static_assert(CAP_PAIRS < RING_PAIRS, "Mitschnitt muss in den Ringpuffer passen");
 #define LEVEL_PERIOD    ENV_MS_TO_SAMPLES(100)
 #define ADC_MAX         4095
 #define HIGH_CLIP_RAW   3500                    // ca. 2,7 V: darüber gilt HIGH als übersteuert
@@ -247,7 +248,7 @@ void env_start(void)
     s_events = xQueueCreate(32, sizeof(env_event_t));
 
     adc_continuous_handle_cfg_t hcfg = {
-        .max_store_buf_size = FRAME_BYTES * 64,   // ca. 200 ms Puffer, überbrückt Flash-Schreibzugriffe
+        .max_store_buf_size = FRAME_BYTES * 32,   // ca. 100 ms Puffer, überbrückt Flash-Schreibzugriffe
         .conv_frame_size = FRAME_BYTES,
     };
     ESP_ERROR_CHECK(adc_continuous_new_handle(&hcfg, &s_adc));

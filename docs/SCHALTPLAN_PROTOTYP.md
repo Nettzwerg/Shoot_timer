@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Dokument** | Schaltpläne für den Steckbrett-Prototyp, Inbetriebnahme, Messablauf |
-| **Version** | 0.2 (Entwurf) – Messung am Stand ohne Laptop (Standalone-Modus) |
+| **Version** | 0.3 (Entwurf) – Messung am Stand ohne Laptop, Live-Anzeige am Smartphone (WLAN) |
 | **Datum** | 2026-10-25 |
 | **Bezug** | [HARDWARE_KONZEPT.md](HARDWARE_KONZEPT.md) v0.2, Mess-Firmware [`firmware/mess`](../firmware/mess), Logger [`tools/mess_logger.py`](../tools/mess_logger.py) |
 
@@ -294,7 +294,7 @@ Alles, was der Timer sendet, landet mit Zeitstempel in `messungen/messung_<Datum
 | `s` | Status: Schwelle, Ruhelage, DMA-Überläufe, Beep-Einstellung |
 | `e 0/1` | Schussmeldungen aus/ein (Standard: ein) |
 | `l 0/1` | Pegelmonitor mit 10 Hz |
-| `c 0/1` | Mitschnitt je Schuss (50 ms vor bis 450 ms nach der Schwelle) |
+| `c 0/1` | Mitschnitt je Schuss (50 ms vor bis 300 ms nach der Schwelle) |
 | `t <dBFS>` | Schwelle (Standard −35) |
 | `d <ms>` | Echo-/Totzeit (Standard 50) |
 | `k <Faktor>` | Verhältnis HIGH/LOW (Standard 11) |
@@ -308,6 +308,7 @@ Alles, was der Timer sendet, landet mit Zeitstempel in `messungen/messung_<Datum
 | `i` | Speicherbelegung im Flash |
 | `F` | alle gespeicherten Sitzungen ausgeben (nutzt `mess_logger.py download`) |
 | `X` | alle gespeicherten Sitzungen löschen, Situationszähler auf 0 |
+| `n 0/1` | WLAN-Weboberfläche aus/ein (gespeichert, wirkt nach Neustart; Standard: ein) |
 
 Ausgabe je Schuss (CSV): `SHOT,<Nr>,<Zeit s>,<Split s>,<Pegel dBFS>,<Anstieg ms>,<LOW>,<HIGH>,<HIGH übersteuert>`.
 
@@ -322,7 +323,7 @@ Ausgabe je Schuss (CSV): `SHOT,<Nr>,<Zeit s>,<Split s>,<Pegel dBFS>,<Anstieg ms>
 Am Stand braucht es **keinen Laptop**. Die Mess-Firmware speichert alles im Flash des ESP32 (ca. 6 MB):
 
 - jede Schussmeldung (`SHOT`), jeden Beep und jede Markierung,
-- die **ersten 3 Mitschnitte nach jeder Markierung** (je 0,5 s Signalverlauf).
+- die **ersten 3 Mitschnitte nach jeder Markierung** (je 0,35 s Signalverlauf).
 
 Ausgelesen wird zu Hause mit `mess_logger.py download`. Bedient wird der Aufbau am Stand nur über die Taste **BOOT** des DevKits:
 
@@ -341,7 +342,8 @@ Ausgelesen wird zu Hause mit `mess_logger.py download`. Bedient wird der Aufbau 
 
 1. Firmware flashen, Aufbau prüfen (Kap. 2.6), Speicher leeren: `python tools/mess_logger.py download --port COM5 --erase`.
 2. Probelauf mit Klatschen: einschalten → 2 Töne, BOOT kurz → 1 Ton, klatschen, BOOT kurz → 2 Töne, klatschen. Auslesen und mit `summary` prüfen.
-3. Messprotokoll (Kap. 6.3) ausdrucken.
+3. Mit dem iPhone verbinden (Kap. 6.2a), WLAN-Störungen prüfen, Seite zum Home-Bildschirm hinzufügen.
+4. Messprotokoll (Kap. 6.3) ausdrucken.
 
 **Aufbau am Stand:** Steckbrett und Powerbank in eine kleine Box (z. B. Frischhaltedose) hinter der Feuerlinie. Das Mikrofon hängt an der 1–2 m langen Leitung und wird je Situation positioniert. **Erlaubnis der Standaufsicht einholen.** Mikrofon und Box nur bei freigegebener Bahn umstellen.
 
@@ -363,7 +365,35 @@ Ausgelesen wird zu Hause mit `mess_logger.py download`. Bedient wird der Aufbau 
 
    `protokoll.txt` enthält die Zeilen des Messprotokolls im Format `1 = A eigen 9mm 0.5m`.
 
-**Variante mit Laptop oder Smartphone:** Wer doch ein Gerät mitnehmen kann, startet `mess_logger.py log` und sieht jeden Schuss sofort. Unter Android geht auch eine USB-Terminal-App mit OTG-Kabel (z. B. „Serial USB Terminal“, 921600 Baud). Die Daten werden in beiden Fällen zusätzlich im Flash gespeichert.
+### 6.2a Live-Anzeige am Smartphone (iPhone und Android)
+
+Die Mess-Firmware öffnet ein eigenes WLAN mit einer Webseite. Dafür ist **keine App** nötig, nur der Browser (Safari, Chrome). Eine Internetverbindung braucht es auch nicht.
+
+1. Timer einschalten (2 kurze Töne).
+2. iPhone: *Einstellungen → WLAN* → **ShotTimer-Mess**, Passwort **shoot1234**. Den Hinweis „Keine Internetverbindung“ bestätigen bzw. im WLAN bleiben.
+3. In Safari **http://192.168.4.1** öffnen. Tipp: *Teilen → Zum Home-Bildschirm*, dann ist die Seite am Stand mit einem Tipp erreichbar.
+
+Die Seite zeigt:
+
+- jeden Schuss sofort mit Nummer, Zeit, Split, Pegel und Anstiegszeit; **Ü** = Kanal HIGH übersteuert,
+- die Situationen als Trennzeilen,
+- die Knöpfe **„Nächste Situation“** und **„Timer-Durchgang“**. Sie wirken genau wie die BOOT-Taste, die Quittungstöne kommen trotzdem,
+- einen Pegelbalken (Schalter „Pegel“), um die Schwelle vor Ort zu prüfen,
+- unter *Einstellungen und Daten*: Schwelle, Totzeit, Test-Beep und **„Alle gespeicherten Daten herunterladen“**.
+
+Alles wird zusätzlich im Flash gespeichert. Bricht die WLAN-Verbindung ab, geht nichts verloren.
+
+**Daten nach Hause bringen** – drei Wege, alle gleichwertig:
+
+| Weg | Vorgehen |
+|---|---|
+| USB am PC | `python tools/mess_logger.py download --port COM5` |
+| iPhone | Link „Alle gespeicherten Daten herunterladen“ → Datei `shottimer_dump.txt` landet in der App *Dateien* → per AirDrop/iCloud/Mail auf den PC → `python tools/mess_logger.py download --datei shottimer_dump.txt` |
+| PC per WLAN | PC mit „ShotTimer-Mess“ verbinden, http://192.168.4.1/api/dump im Browser speichern, weiter wie beim iPhone |
+
+> **WLAN und Analogteil:** Die Sendeimpulse des WLAN können auf dem Steckbrett als Störung im Mikrofonsignal auftauchen. Die Sendeleistung ist deshalb auf 10 dBm reduziert. **Vor dem Standtermin prüfen:** In der Webseite den Pegel einschalten und ohne Geräusche beobachten. Die Ruhe sollte deutlich unter −50 dBFS liegen und keine Schussmeldungen auslösen. Danach mit `n 0` (WLAN aus, Neustart) vergleichen. Stört das WLAN, entweder Leitungen kürzen/abschirmen oder am Stand ohne WLAN messen.
+
+Mit einem Android-Telefon geht alternativ auch eine USB-Terminal-App mit OTG-Kabel (z. B. „Serial USB Terminal“, 921600 Baud). Mit dem iPhone ist das nicht möglich, weil iOS keine USB-Seriell-Adapter unterstützt.
 
 ### 6.3 Messprotokoll (zum Ausdrucken)
 

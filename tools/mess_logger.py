@@ -13,6 +13,9 @@ Aufzeichnen (Befehle werden an den Timer weitergereicht):
 Ohne Laptop am Stand (Standalone, Daten im Flash des Timers):
     python mess_logger.py download --port COM5               zu Hause auslesen
     python mess_logger.py download --port COM5 --erase       auslesen, danach Speicher löschen
+    python mess_logger.py download --datei shottimer_dump.txt
+        Datei einlesen, die über die Weboberfläche (http://192.168.4.1, z. B. mit dem iPhone)
+        heruntergeladen wurde
 
 Auswerten:
     python mess_logger.py summary messungen/*.log            Pegel je Markierung
@@ -122,22 +125,17 @@ def cmd_log(args):
         pass
 
 
-def cmd_download(args):
-    import serial  # pyserial
-
-    outdir = pathlib.Path(args.outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
-    stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-    ser = serial.Serial(args.port, args.baud, timeout=3)
-    ser.reset_input_buffer()
-    ser.write(b"F\n")
+def save_dump(lines, outdir, stamp):
+    """Zerlegt einen Dump (FILE_/CAP_-Blöcke bis DUMP_END) in Log- und CSV-Dateien."""
     caps = CaptureWriter(outdir, f"flash_{stamp}")
     current = None
     files = 0
-    for line in serial_lines(ser):
+    complete = False
+    for line in lines:
         if line is None:
-            sys.exit("Keine Antwort vom Timer (Port, Baudrate, Firmware prüfen). Speicher wurde NICHT gelöscht.")
+            break
         if line == "DUMP_END":
+            complete = True
             break
         if caps.feed(line):
             continue
@@ -151,6 +149,30 @@ def cmd_download(args):
         elif current:
             current.write(line + "\n")
     print(f"{files} Sitzung(en) und {caps.count} Mitschnitt(e) nach {outdir} gespeichert.")
+    return complete
+
+
+def cmd_download(args):
+    outdir = pathlib.Path(args.outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    if args.datei:
+        with open(args.datei, encoding="utf-8") as f:
+            if not save_dump((row.strip() for row in f if row.strip()), outdir, stamp):
+                print("Warnung: DUMP_END fehlt, die Datei ist möglicherweise unvollständig.")
+        return
+
+    if not args.port:
+        sys.exit("Bitte --port oder --datei angeben.")
+    import serial  # pyserial
+
+    ser = serial.Serial(args.port, args.baud, timeout=3)
+    ser.reset_input_buffer()
+    ser.write(b"F\n")
+    if not save_dump(serial_lines(ser), outdir, stamp):
+        sys.exit("Keine vollständige Antwort vom Timer (Port, Baudrate, Firmware prüfen). "
+                 "Speicher wurde NICHT gelöscht.")
     if args.erase:
         ser.write(b"X\n")
         print("Speicher im Timer gelöscht.")
@@ -262,7 +284,8 @@ def main():
     ps.add_argument("logs", nargs="+")
     ps.add_argument("--protokoll", help="Datei mit Zuordnung Situationsnummer = Beschreibung")
     pd = sub.add_parser("download", help="im Timer gespeicherte Messungen auslesen")
-    pd.add_argument("--port", required=True)
+    pd.add_argument("--port")
+    pd.add_argument("--datei", help="über die Weboberfläche heruntergeladene Dump-Datei einlesen")
     pd.add_argument("--baud", type=int, default=921600)
     pd.add_argument("--outdir", default="messungen")
     pd.add_argument("--erase", action="store_true", help="nach erfolgreichem Auslesen Speicher löschen")

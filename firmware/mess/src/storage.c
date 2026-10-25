@@ -123,18 +123,49 @@ void store_info(void)
            (unsigned long)s_session, (unsigned)(used / 1024), (unsigned)(total / 1024));
 }
 
+// Gepufferte Ausgabe für den Dump (Konsole oder HTTP)
+static struct {
+    store_write_fn write;
+    void *ctx;
+    char buf[1024];
+    size_t len;
+} s_out;
+
+static void out_flush(void)
+{
+    if (s_out.len > 0) {
+        s_out.buf[s_out.len] = '\0';
+        s_out.write(s_out.buf, s_out.ctx);
+        s_out.len = 0;
+    }
+}
+
+static void out_printf(const char *fmt, ...)
+{
+    if (s_out.len > sizeof(s_out.buf) - 200) {
+        out_flush();
+    }
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(s_out.buf + s_out.len, sizeof(s_out.buf) - s_out.len, fmt, ap);
+    va_end(ap);
+    if (n > 0) {
+        s_out.len += (size_t)n < sizeof(s_out.buf) - s_out.len ? (size_t)n : sizeof(s_out.buf) - s_out.len - 1;
+    }
+}
+
 static void dump_log(const char *name, const char *path)
 {
     FILE *f = fopen(path, "r");
     if (f == NULL) {
         return;
     }
-    printf("FILE_BEGIN,%s\n", name);
+    out_printf("FILE_BEGIN,%s\n", name);
     char line[160];
     while (fgets(line, sizeof(line), f) != NULL) {
-        fputs(line, stdout);
+        out_printf("%s", line);
     }
-    printf("FILE_END\n");
+    out_printf("FILE_END\n");
     fclose(f);
 }
 
@@ -146,28 +177,27 @@ static void dump_capture(const char *name, const char *path)
     }
     cap_header_t h;
     if (fread(&h, sizeof(h), 1, f) == 1) {
-        printf("CAP_BEGIN,%lu,%lu,%s\n", (unsigned long)h.trigger_idx, (unsigned long)h.pairs, name);
+        out_printf("CAP_BEGIN,%lu,%lu,%s\n", (unsigned long)h.trigger_idx, (unsigned long)h.pairs, name);
         static uint16_t buf[CHUNK_PAIRS * 2];
         uint32_t idx = h.start_idx;
         size_t n;
         while ((n = fread(buf, sizeof(uint16_t) * 2, CHUNK_PAIRS, f)) > 0) {
             for (size_t k = 0; k < n; k++) {
-                printf("%lu,%u,%u\n", (unsigned long)idx++, buf[k * 2], buf[k * 2 + 1]);
+                out_printf("%lu,%u,%u\n", (unsigned long)idx++, buf[k * 2], buf[k * 2 + 1]);
             }
         }
-        printf("CAP_END\n");
+        out_printf("CAP_END\n");
     }
     fclose(f);
 }
 
-void store_dump(void)
+void store_dump_to(store_write_fn write, void *ctx)
 {
-    if (!s_ok) {
-        printf("DUMP_END\n");
-        return;
-    }
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    DIR *d = opendir(BASE);
+    s_out.write = write;
+    s_out.ctx = ctx;
+    s_out.len = 0;
+    DIR *d = s_ok ? opendir(BASE) : NULL;
     struct dirent *e;
     while (d != NULL && (e = readdir(d)) != NULL) {
         char path[300];
@@ -181,8 +211,19 @@ void store_dump(void)
     if (d != NULL) {
         closedir(d);
     }
-    printf("DUMP_END\n");
+    out_printf("DUMP_END\n");
+    out_flush();
     xSemaphoreGive(s_lock);
+}
+
+static void write_stdout(const char *data, void *ctx)
+{
+    fputs(data, stdout);
+}
+
+void store_dump(void)
+{
+    store_dump_to(write_stdout, NULL);
 }
 
 void store_erase(void)

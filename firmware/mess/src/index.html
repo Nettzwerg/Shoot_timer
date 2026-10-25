@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shot-Timer Messung</title>
+<style>
+:root { --bg:#f6f6f4; --fg:#1d1d1b; --muted:#6b6b66; --card:#fff; --line:#e2e2dd; --accent:#1f6feb; --warn:#c2410c; --ok:#15803d; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#141413; --fg:#ecece8; --muted:#9a9a93; --card:#1f1f1d; --line:#33332f; --accent:#4c8dff; --warn:#fb923c; --ok:#4ade80; }
+}
+* { box-sizing:border-box; }
+body { margin:0; padding:12px 16px 40px; background:var(--bg); color:var(--fg); font:16px/1.4 -apple-system, system-ui, sans-serif; }
+h1 { font-size:18px; margin:0; }
+header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+#dot { width:10px; height:10px; border-radius:50%; background:var(--warn); flex:none; }
+#dot.on { background:var(--ok); }
+#info { color:var(--muted); font-size:14px; margin:4px 0 12px; min-height:1.4em; }
+.buttons { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+button { font:inherit; font-weight:600; border:0; border-radius:12px; padding:18px 8px; background:var(--accent); color:#fff; }
+button.sec { background:var(--card); color:var(--fg); border:1px solid var(--line); padding:10px 12px; font-weight:500; }
+button:active { opacity:.7; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-top:12px; }
+.row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.bar { flex:1; height:14px; background:var(--line); border-radius:7px; overflow:hidden; min-width:120px; }
+.bar div { height:100%; width:0; background:var(--accent); transition:width .15s; }
+.bar div.clip { background:var(--warn); }
+table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; font-size:15px; }
+th, td { text-align:right; padding:6px 4px; border-bottom:1px solid var(--line); }
+th:first-child, td:first-child { text-align:left; }
+th { color:var(--muted); font-weight:500; font-size:13px; }
+tr.mark td { text-align:left; font-weight:600; background:var(--bg); }
+tr.note td { text-align:left; color:var(--muted); font-size:13px; }
+.clip { color:var(--warn); font-weight:600; }
+input { font:inherit; width:90px; padding:8px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+summary { cursor:pointer; font-weight:600; }
+a { color:var(--accent); }
+</style>
+</head>
+<body>
+<header><h1>Shot-Timer Messung</h1><span id="dot" title="Verbindung"></span></header>
+<div id="info">verbinde …</div>
+
+<div class="buttons">
+  <button onclick="cmd('m')">Nächste Situation</button>
+  <button onclick="cmd('g')">Timer-Durchgang</button>
+</div>
+
+<div class="card">
+  <div class="row">
+    <label><input type="checkbox" id="lvl" style="width:auto" onchange="cmd('l ' + (this.checked ? 1 : 0))"> Pegel</label>
+    <div class="bar"><div id="bar"></div></div>
+    <span id="lvltxt" style="min-width:76px;text-align:right">–</span>
+  </div>
+</div>
+
+<div class="card">
+  <table>
+    <thead><tr><th>Nr.</th><th>Zeit s</th><th>Split s</th><th>Pegel dBFS</th><th>Anstieg</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+
+<details class="card">
+  <summary>Einstellungen und Daten</summary>
+  <p class="row">Schwelle <input id="thr" type="number" step="1" value="-45"> dBFS
+    <button class="sec" onclick="cmd('t ' + thr.value)">Setzen</button></p>
+  <p class="row">Totzeit <input id="dead" type="number" step="5" value="50"> ms
+    <button class="sec" onclick="cmd('d ' + dead.value)">Setzen</button></p>
+  <p class="row"><button class="sec" onclick="cmd('b')">Test-Beep</button>
+    <button class="sec" onclick="cmd('x')">Durchgang beenden</button></p>
+  <p><a href="/api/dump">Alle gespeicherten Daten herunterladen</a> (Textdatei für <code>mess_logger.py download --datei</code>)</p>
+</details>
+
+<script>
+let next = 0, failures = 0;
+const rows = document.getElementById('rows');
+
+function cmd(c) {
+  fetch('/api/cmd', { method: 'POST', body: c }).catch(() => {});
+}
+
+function addRow(cls, cells) {
+  const tr = document.createElement('tr');
+  if (cls) tr.className = cls;
+  cells.forEach((c, i) => {
+    const td = document.createElement('td');
+    if (cls) td.colSpan = 5;
+    if (c && c.clip) { td.textContent = c.text; td.className = 'clip'; }
+    else td.textContent = c;
+    tr.appendChild(td);
+  });
+  rows.insertBefore(tr, rows.firstChild);
+  while (rows.children.length > 300) rows.removeChild(rows.lastChild);
+}
+
+function handle(line) {
+  const f = line.split(',');
+  if (f[0] === 'SHOT') {
+    const clipped = f[8] === '1';
+    addRow('', [f[1], (+f[2]).toFixed(2), (+f[3]).toFixed(2),
+      clipped ? { text: (+f[4]).toFixed(1) + ' Ü', clip: true } : (+f[4]).toFixed(1),
+      (+f[5]).toFixed(2)]);
+  } else if (f[0] === 'MARK') {
+    addRow('mark', [f.slice(1).join(',')]);
+  } else if (f[0] === 'BEEP') {
+    addRow('note', ['Beep – Start']);
+  } else if (line.startsWith('#')) {
+    addRow('note', [line.slice(1).trim()]);
+  }
+}
+
+function showLevel(line) {
+  const f = line.split(',');
+  if (f[0] !== 'LVL') return;
+  const db = +f[1], clipped = f[4] === '1';
+  const bar = document.getElementById('bar');
+  bar.style.width = Math.max(0, Math.min(100, (db + 70) / 70 * 100)) + '%';
+  bar.className = clipped ? 'clip' : '';
+  document.getElementById('lvltxt').textContent = db.toFixed(1) + ' dBFS';
+}
+
+async function poll() {
+  try {
+    const r = await fetch('/api/lines?since=' + next, { cache: 'no-store' });
+    const j = await r.json();
+    if (j.next < next) rows.innerHTML = '';
+    j.lines.forEach(handle);
+    next = j.next;
+    if (j.info) document.getElementById('info').textContent = j.info;
+    if (j.level) showLevel(j.level);
+    failures = 0;
+    document.getElementById('dot').className = 'on';
+  } catch (e) {
+    if (++failures > 2) document.getElementById('dot').className = '';
+  }
+  setTimeout(poll, 600);
+}
+poll();
+</script>
+</body>
+</html>
