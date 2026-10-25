@@ -13,6 +13,8 @@
 #define PIN_BUZ_SLEEP   41  // DRV8833 nSLEEP
 #define PIN_BOOST_EN    42  // High-Side-Schalter MT3608
 
+#define PIN_BOOT_BTN    0   // Taste BOOT des DevKits: Markierung (kurz) / Timer-Durchgang (lang)
+
 #define ADC_CH_LOW      ADC_CHANNEL_0
 #define ADC_CH_HIGH     ADC_CHANNEL_1
 #define ADC_CH_VBAT     ADC_CHANNEL_3

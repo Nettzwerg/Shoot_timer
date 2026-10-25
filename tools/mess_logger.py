@@ -10,8 +10,19 @@ Aufzeichnen (Befehle werden an den Timer weitergereicht):
         !nachbar 9mm bahn2
     So lassen sich die folgenden Schüsse am Stand einer Situation zuordnen.
 
+Ohne Laptop am Stand (Standalone, Daten im Flash des Timers):
+    python mess_logger.py download --port COM5               zu Hause auslesen
+    python mess_logger.py download --port COM5 --erase       auslesen, danach Speicher löschen
+    python mess_logger.py download --datei shottimer_dump.txt
+        Datei einlesen, die über die Weboberfläche (http://192.168.4.1, z. B. mit dem iPhone)
+        heruntergeladen wurde
+
 Auswerten:
-    python mess_logger.py summary messung_*.log     Pegel je Markierung
+    python mess_logger.py summary messungen/*.log            Pegel je Markierung
+    python mess_logger.py summary messungen/*.log --protokoll protokoll.txt
+        protokoll.txt ordnet Situationsnummern Beschreibungen zu, eine Zeile je Situation:
+            1 = A eigen 9mm 0.5m
+            2 = A nachbar 9mm 1bahn
     python mess_logger.py plot cap_0001.csv          Mitschnitt anzeigen (matplotlib)
     python mess_logger.py sweep messung_*.log        Beep-Frequenzgang anzeigen
 """
@@ -23,6 +34,55 @@ import pathlib
 import statistics
 import sys
 import threading
+
+
+class CaptureWriter:
+    """Schreibt CAP_BEGIN ... CAP_END-Blöcke der Firmware als CSV-Dateien."""
+
+    def __init__(self, outdir, prefix):
+        self.outdir = outdir
+        self.prefix = prefix
+        self.count = 0
+        self.file = None
+        self.writer = None
+        self.trigger = 0
+
+    def feed(self, line):
+        """Gibt True zurück, wenn die Zeile zu einem Mitschnitt gehörte."""
+        if line.startswith("CAP_BEGIN"):
+            self.count += 1
+            fields = line.split(",")
+            self.trigger = int(fields[1])
+            name = fields[3].removesuffix(".bin") if len(fields) > 3 else f"{self.count:04d}"
+            self.path = self.outdir / f"cap_{self.prefix}_{name}.csv"
+            self.file = open(self.path, "w", newline="", encoding="utf-8")
+            self.writer = csv.writer(self.file)
+            self.writer.writerow(["idx", "t_ms", "low", "high"])
+            return True
+        if line == "CAP_END" and self.file:
+            self.file.close()
+            self.file = self.writer = None
+            return True
+        if self.writer:
+            idx, low, high = (int(v) for v in line.split(","))
+            self.writer.writerow([idx, f"{(idx - self.trigger) * 0.05:.2f}", low, high])
+            return True
+        return False
+
+
+def serial_lines(ser):
+    buf = b""
+    while True:
+        chunk = ser.read(4096)
+        if not chunk:
+            yield None   # Zeitüberschreitung
+            continue
+        buf += chunk
+        *lines, buf = buf.split(b"\n")
+        for raw in lines:
+            line = raw.decode("utf-8", errors="replace").strip()
+            if line:
+                yield line
 
 
 def cmd_log(args):
@@ -40,37 +100,17 @@ def cmd_log(args):
         log.write(f"{dt.datetime.now().isoformat(timespec='milliseconds')} {line}\n")
 
     def reader():
-        cap_file = None
-        cap_writer = None
-        cap_no = 0
-        buf = b""
-        while True:
-            buf += ser.read(4096)
-            *lines, buf = buf.split(b"\n")
-            for raw in lines:
-                line = raw.decode("utf-8", errors="replace").strip()
-                if not line:
-                    continue
+        caps = CaptureWriter(outdir, stamp)
+        for line in serial_lines(ser):
+            if line is None:
+                continue
+            if caps.feed(line):
                 if line.startswith("CAP_BEGIN"):
-                    cap_no += 1
-                    path = outdir / f"cap_{stamp}_{cap_no:04d}.csv"
-                    cap_file = open(path, "w", newline="", encoding="utf-8")
-                    cap_writer = csv.writer(cap_file)
-                    cap_writer.writerow(["idx", "t_ms", "low", "high"])
-                    trigger = int(line.split(",")[1])
-                    write_log(f"{line},{path.name}")
-                    print(f"# Mitschnitt -> {path.name}")
-                    continue
-                if line == "CAP_END" and cap_file:
-                    cap_file.close()
-                    cap_file = cap_writer = None
-                    continue
-                if cap_writer:
-                    idx, low, high = (int(v) for v in line.split(","))
-                    cap_writer.writerow([idx, f"{(idx - trigger) * 0.05:.2f}", low, high])
-                    continue
-                write_log(line)
-                print(line)
+                    write_log(f"{line},{caps.path.name}")
+                    print(f"# Mitschnitt -> {caps.path.name}")
+                continue
+            write_log(line)
+            print(line)
 
     threading.Thread(target=reader, daemon=True).start()
     try:
@@ -85,22 +125,91 @@ def cmd_log(args):
         pass
 
 
+def save_dump(lines, outdir, stamp):
+    """Zerlegt einen Dump (FILE_/CAP_-Blöcke bis DUMP_END) in Log- und CSV-Dateien."""
+    caps = CaptureWriter(outdir, f"flash_{stamp}")
+    current = None
+    files = 0
+    complete = False
+    for line in lines:
+        if line is None:
+            break
+        if line == "DUMP_END":
+            complete = True
+            break
+        if caps.feed(line):
+            continue
+        if line.startswith("FILE_BEGIN,"):
+            name = line.split(",", 1)[1].removesuffix(".txt")
+            current = open(outdir / f"flash_{stamp}_{name}.log", "w", encoding="utf-8")
+            files += 1
+        elif line == "FILE_END" and current:
+            current.close()
+            current = None
+        elif current:
+            current.write(line + "\n")
+    print(f"{files} Sitzung(en) und {caps.count} Mitschnitt(e) nach {outdir} gespeichert.")
+    return complete
+
+
+def cmd_download(args):
+    outdir = pathlib.Path(args.outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    if args.datei:
+        with open(args.datei, encoding="utf-8") as f:
+            if not save_dump((row.strip() for row in f if row.strip()), outdir, stamp):
+                print("Warnung: DUMP_END fehlt, die Datei ist möglicherweise unvollständig.")
+        return
+
+    if not args.port:
+        sys.exit("Bitte --port oder --datei angeben.")
+    import serial  # pyserial
+
+    ser = serial.Serial(args.port, args.baud, timeout=3)
+    ser.reset_input_buffer()
+    ser.write(b"F\n")
+    if not save_dump(serial_lines(ser), outdir, stamp):
+        sys.exit("Keine vollständige Antwort vom Timer (Port, Baudrate, Firmware prüfen). "
+                 "Speicher wurde NICHT gelöscht.")
+    if args.erase:
+        ser.write(b"X\n")
+        print("Speicher im Timer gelöscht.")
+
+
 def read_log(paths):
+    """Liefert die Zeilen der Logs, mit oder ohne vorangestellten PC-Zeitstempel."""
     for path in paths:
         with open(path, encoding="utf-8") as f:
             for row in f:
-                parts = row.rstrip("\n").split(" ", 1)
-                if len(parts) == 2:
-                    yield parts[1]
+                row = row.rstrip("\n")
+                first, _, rest = row.partition(" ")
+                if first[:1].isdigit() and "T" in first:
+                    row = rest
+                if row:
+                    yield row
+
+
+def read_protokoll(path):
+    names = {}
+    if path:
+        with open(path, encoding="utf-8") as f:
+            for row in f:
+                num, sep, text = row.partition("=")
+                if sep and num.strip().isdigit():
+                    names[f"Situation {int(num)}"] = f"{int(num):>2} {text.strip()}"
+    return names
 
 
 def cmd_summary(args):
+    names = read_protokoll(args.protokoll)
     groups = {}
     ratios = []
     mark = "(ohne Markierung)"
     for line in read_log(args.logs):
         if line.startswith("MARK,"):
-            mark = line[5:]
+            mark = names.get(line[5:], line[5:])
         elif line.startswith("SHOT,"):
             f = line.split(",")
             groups.setdefault(mark, []).append((float(f[4]), float(f[5]), f[8] == "1"))
@@ -173,12 +282,20 @@ def main():
     pl.add_argument("--outdir", default="messungen")
     ps = sub.add_parser("summary", help="Pegel je Markierung auswerten")
     ps.add_argument("logs", nargs="+")
+    ps.add_argument("--protokoll", help="Datei mit Zuordnung Situationsnummer = Beschreibung")
+    pd = sub.add_parser("download", help="im Timer gespeicherte Messungen auslesen")
+    pd.add_argument("--port")
+    pd.add_argument("--datei", help="über die Weboberfläche heruntergeladene Dump-Datei einlesen")
+    pd.add_argument("--baud", type=int, default=921600)
+    pd.add_argument("--outdir", default="messungen")
+    pd.add_argument("--erase", action="store_true", help="nach erfolgreichem Auslesen Speicher löschen")
     pp = sub.add_parser("plot", help="Mitschnitt anzeigen")
     pp.add_argument("csv")
     pw = sub.add_parser("sweep", help="Beep-Sweep anzeigen")
     pw.add_argument("logs", nargs="+")
     args = p.parse_args()
-    {"log": cmd_log, "summary": cmd_summary, "plot": cmd_plot, "sweep": cmd_sweep}[args.cmd](args)
+    {"log": cmd_log, "summary": cmd_summary, "plot": cmd_plot, "sweep": cmd_sweep,
+     "download": cmd_download}[args.cmd](args)
 
 
 if __name__ == "__main__":
