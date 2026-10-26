@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Dokument** | Architektur der Timer-Firmware (Gerätesoftware) |
-| **Version** | 0.1 (Entwurf) |
+| **Version** | 0.2 (Entwurf) – Entscheidungen zu Laufanzeige, Empfindlichkeit, Sprache; M1 umgesetzt |
 | **Datum** | 2026-10-26 |
 | **Bezug** | [ANFORDERUNGEN.md](ANFORDERUNGEN.md) v0.2, [HARDWARE_KONZEPT.md](HARDWARE_KONZEPT.md) v0.2, Mess-Firmware [`firmware/mess`](../firmware/mess) |
 | **UI-Prototyp** | [`docs/ui-prototyp.html`](ui-prototyp.html) – klickbarer Simulator von Display und Tasten (online: https://claude.ai/artifact/Wt1kxmGZ3CRdpYLcE5ey93) |
@@ -301,8 +301,17 @@ Die Host-Tests sollen später in GitHub Actions laufen. Dort wird auch die Firmw
 
 ---
 
-## 14. Offene Fragen
+## 14. Entscheidungen
 
-1. **Laufbildschirm:** Soll während des Laufs die **laufende Uhr** groß angezeigt werden oder (wie bei den meisten Marktgeräten) die **Zeit des letzten Schusses**? Der Prototyp zeigt den letzten Schuss groß und die laufende Uhr klein.
-2. **Empfindlichkeit:** Skala 1–10 (10 = am empfindlichsten), wie im Prototyp?
-3. **Sprache:** Nur Deutsch in V1, Englisch später (F-075)?
+| Frage | Entscheidung (2026-10-26) |
+|---|---|
+| Laufbildschirm | Zeit des letzten Schusses groß, laufende Uhr klein (wie im Prototyp) |
+| Empfindlichkeit | Skala 1–10, 10 = am empfindlichsten (Schwelle −6 … −40 dBFS) |
+| Sprache | nur Deutsch in V1 |
+
+## 15. Stand der Umsetzung
+
+| Meilenstein | Stand |
+|---|---|
+| M1 Kern mit Host-Tests | **erledigt**: `firmware/timer/src/core` (`settings`, `shot_string`, `timer_core`), Tests in `firmware/timer/test` (`make -C firmware/timer/test`), laufen in GitHub Actions |
+| M2–M8 | offen |
