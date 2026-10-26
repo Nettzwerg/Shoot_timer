@@ -35,7 +35,7 @@
 #include "freertos/task.h"
 #include "nvs.h"
 #include "nvs_flash.h"
-#include "pins.h"
+#include "board_pins.h"
 #include "storage.h"
 #include "web.h"
 
