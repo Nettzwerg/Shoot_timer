@@ -35,6 +35,7 @@ env_config_t *env_config(void);
 bool env_get_event(env_event_t *evt, uint32_t timeout_ms);
 
 uint32_t env_now_idx(void);             // geschätzter aktueller Sample-Index
+int64_t env_idx_to_us(uint32_t idx);    // Sample-Index -> esp_timer-Zeit in µs
 void env_blank_until(uint32_t idx);     // keine Schusserkennung bis idx
 void env_set_level_report(bool on);
 void env_set_capture(bool on);

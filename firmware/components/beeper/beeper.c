@@ -2,9 +2,10 @@
 
 #include "driver/gpio.h"
 #include "driver/ledc.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "pins.h"
+#include "board_pins.h"
 
 #define LEDC_MODE       LEDC_LOW_SPEED_MODE
 #define LEDC_TIMER      LEDC_TIMER_0
@@ -15,6 +16,7 @@
 #define BOOST_SETTLE_MS 30
 
 static bool s_powered;
+static esp_timer_handle_t s_stop_timer;
 
 static void set_duty(ledc_channel_t ch, uint32_t duty)
 {
@@ -103,6 +105,22 @@ void beeper_stop(void)
     gpio_set_level(PIN_BUZ_SLEEP, 0);   // Ausgänge hochohmig
     set_duty(CH_IN1, 0);
     set_duty(CH_IN2, 0);
+}
+
+static void stop_cb(void *arg)
+{
+    beeper_stop();
+}
+
+void beeper_beep_async(uint32_t freq_hz, uint32_t ms, beep_volume_t vol)
+{
+    if (s_stop_timer == NULL) {
+        const esp_timer_create_args_t args = { .callback = stop_cb, .name = "beep_stop" };
+        ESP_ERROR_CHECK(esp_timer_create(&args, &s_stop_timer));
+    }
+    esp_timer_stop(s_stop_timer);   // laufenden Ton verlängern statt abbrechen
+    beeper_start(freq_hz, vol);
+    esp_timer_start_once(s_stop_timer, (uint64_t)ms * 1000);
 }
 
 void beeper_beep(uint32_t freq_hz, uint32_t ms, beep_volume_t vol)

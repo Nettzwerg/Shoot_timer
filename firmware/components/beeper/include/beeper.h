@@ -16,3 +16,5 @@ bool beeper_powered(void);
 void beeper_start(uint32_t freq_hz, beep_volume_t vol);
 void beeper_stop(void);
 void beeper_beep(uint32_t freq_hz, uint32_t ms, beep_volume_t vol);  // blockierend
+// Nicht blockierend: startet sofort, ein esp_timer beendet den Ton. Boost muss bereits eingeschaltet sein.
+void beeper_beep_async(uint32_t freq_hz, uint32_t ms, beep_volume_t vol);

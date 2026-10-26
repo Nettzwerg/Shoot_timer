@@ -10,7 +10,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
-#include "pins.h"
+#include "board_pins.h"
 
 #define N_CH            3
 #define FRAME_PAIRS     64                      // 3,2 ms je DMA-Rahmen
@@ -40,8 +40,10 @@ static uint16_t s_ring[RING_PAIRS * 2];
 static uint16_t s_cap[CAP_PAIRS * 2];
 
 static volatile uint32_t s_idx;                 // nächster Sample-Index
-static volatile uint32_t s_idx_at_frame;
-static volatile int64_t s_frame_time_us;
+// Zuordnung Sample-Index <-> esp_timer-Zeit, je DMA-Rahmen aktualisiert
+static portMUX_TYPE s_time_lock = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t s_idx_at_frame;
+static int64_t s_frame_time_us;
 static volatile uint32_t s_blank_until;
 static volatile uint32_t s_overflows;
 static float s_base_low = 2048.0f, s_base_high = 2048.0f;
@@ -238,8 +240,11 @@ static void adc_task(void *arg)
             }
         }
 
-        s_frame_time_us = esp_timer_get_time();
+        int64_t t = esp_timer_get_time();
+        taskENTER_CRITICAL(&s_time_lock);
+        s_frame_time_us = t;
         s_idx_at_frame = s_idx;
+        taskEXIT_CRITICAL(&s_time_lock);
     }
 }
 
@@ -299,11 +304,29 @@ bool env_get_event(env_event_t *evt, uint32_t timeout_ms)
     return xQueueReceive(s_events, evt, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
 }
 
+static void frame_ref(uint32_t *idx, int64_t *t_us)
+{
+    taskENTER_CRITICAL(&s_time_lock);
+    *idx = s_idx_at_frame;
+    *t_us = s_frame_time_us;
+    taskEXIT_CRITICAL(&s_time_lock);
+}
+
 uint32_t env_now_idx(void)
 {
-    uint32_t idx = s_idx_at_frame;
-    int64_t dt = esp_timer_get_time() - s_frame_time_us;
-    return idx + (uint32_t)(dt / ENV_SAMPLE_US);
+    uint32_t idx;
+    int64_t t;
+    frame_ref(&idx, &t);
+    return idx + (uint32_t)((esp_timer_get_time() - t) / ENV_SAMPLE_US);
+}
+
+int64_t env_idx_to_us(uint32_t idx)
+{
+    // Das letzte Sample des Rahmens (Index ref - 1) lag zum Zeitpunkt t vor; Abstand 50 µs je Sample
+    uint32_t ref;
+    int64_t t;
+    frame_ref(&ref, &t);
+    return t - (int64_t)(int32_t)(ref - 1 - idx) * ENV_SAMPLE_US;
 }
 
 void env_blank_until(uint32_t idx)
