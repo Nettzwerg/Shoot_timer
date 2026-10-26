@@ -1,0 +1,781 @@
+<title>Shot-Timer Simulator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+/* Layout: Gerät links (das Produkt), schmale Werkbank-Spalte rechts mit Simulation, Tastenhilfe und Ereignisprotokoll */
+:root {
+  --bg: #e9ecea;            /* kühles Werkstattgrau */
+  --panel: #f7f8f7;
+  --fg: #1b1e1c;
+  --muted: #5d655f;
+  --line: #cfd5d1;
+  --accent: #c94a14;        /* Signalorange wie die START-Taste */
+  --accent-fg: #ffffff;
+  --ok: #1d7a43;
+  --device: #2a2d2b;        /* Gehäuse PETG anthrazit, in beiden Themen gleich */
+  --device-edge: #3a3e3b;
+  --device-key: #3b403d;
+  --device-key-fg: #e6e9e7;
+  --start: #ef6a24;
+  --font-ui: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-lcd: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121513; --panel: #1b1f1c; --fg: #e8ece9; --muted: #9aa49d; --line: #2e3430;
+    --accent: #f07a3c; --accent-fg: #1a0d05; --ok: #5ccf8a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121513; --panel: #1b1f1c; --fg: #e8ece9; --muted: #9aa49d; --line: #2e3430;
+  --accent: #f07a3c; --accent-fg: #1a0d05; --ok: #5ccf8a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font: 15px/1.5 var(--font-ui);
+  padding-block: 20px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1060px; margin: 0 auto; display: grid; gap: 20px; }
+header h1 { font: 600 22px/1.2 var(--font-ui); margin: 0; text-wrap: balance; }
+header p { margin: 4px 0 0; color: var(--muted); max-width: 70ch; }
+.grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 820px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Gerät */
+.device {
+  background: var(--device); border: 1px solid var(--device-edge); border-radius: 28px;
+  padding: 18px 18px 22px; display: grid; gap: 14px; max-width: 540px; width: 100%; justify-self: center;
+  box-shadow: 0 1px 0 #4a4f4c inset, 0 18px 40px -18px rgba(0,0,0,.55);
+}
+.device-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mic { display: flex; align-items: center; gap: 8px; color: #8d958f; font: 500 11px var(--font-mono); letter-spacing: .08em; }
+.mic span { width: 10px; height: 10px; border-radius: 50%; background: #111; box-shadow: 0 0 0 3px #1c1f1d; }
+.key-start {
+  width: 74px; height: 74px; border-radius: 50%; border: 0; cursor: pointer;
+  background: radial-gradient(circle at 35% 30%, #ff9a5c, var(--start) 55%, #b9470f);
+  color: #2a1204; font: 700 13px var(--font-lcd); letter-spacing: .12em;
+  box-shadow: 0 4px 0 #8a330a, 0 8px 18px -6px rgba(0,0,0,.6);
+}
+.key-start:active, .key-start.down { transform: translateY(3px); box-shadow: 0 1px 0 #8a330a; }
+.bezel { background: #0b0c0b; border-radius: 10px; padding: 10px; }
+canvas { display: block; width: 100%; height: auto; aspect-ratio: 4 / 3; border-radius: 3px; background: #000; max-width: 100%; }
+.keys { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.key {
+  border: 0; cursor: pointer; height: 52px; border-radius: 12px; background: var(--device-key);
+  color: var(--device-key-fg); font: 600 15px var(--font-lcd); letter-spacing: .06em;
+  box-shadow: 0 3px 0 #1d201e;
+}
+.key:active, .key.down { transform: translateY(2px); box-shadow: 0 1px 0 #1d201e; }
+.device-foot { display: flex; justify-content: space-between; align-items: center; color: #7d857f; font: 500 11px var(--font-mono); letter-spacing: .08em; }
+.grille { display: flex; gap: 5px; }
+.grille i { width: 4px; height: 16px; border-radius: 2px; background: #1a1c1b; }
+.grille.on i { background: var(--start); }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+/* Werkbank */
+.side { display: grid; gap: 14px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; min-width: 0; }
+.card h2 { font: 600 12px var(--font-ui); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
+.sim { display: flex; flex-wrap: wrap; gap: 10px; }
+.sim button {
+  font: 600 15px var(--font-ui); border-radius: 10px; padding: 10px 14px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+}
+.sim button.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+.sim label { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.hint-list { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; margin: 0; }
+.hint-list dt { font: 500 13px var(--font-mono); white-space: nowrap; }
+.hint-list dd { margin: 0; }
+kbd { font: 500 12px var(--font-mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; background: var(--bg); }
+.keys-legend { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+.log { font: 13px/1.55 var(--font-mono); max-height: 240px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+.log li { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 8px; border-bottom: 1px solid var(--line); padding: 3px 0; }
+.log time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.log .shot { color: var(--ok); }
+.log .ign { color: var(--muted); }
+.log .beep { color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .key:active, .key-start:active { transform: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Shot-Timer Simulator</h1>
+    <p>Bedienoberfläche des DIY-Shot-Timers zum Ausprobieren: Display 320 × 240, START-Taste und vier Menütasten wie am späteren Gerät. Schüsse werden über die Simulation ausgelöst; Nachbarschüsse sind leiser und werden je nach Empfindlichkeit erkannt oder ignoriert.</p>
+  </header>
+
+  <div class="grid">
+    <div class="device" aria-label="Shot-Timer">
+      <div class="device-top">
+        <div class="mic"><span></span>MIC</div>
+        <button class="key-start" id="k-start" aria-label="START (2 s halten: aus)">START</button>
+      </div>
+      <div class="bezel"><canvas id="lcd" width="640" height="480" aria-label="Display"></canvas></div>
+      <div class="keys">
+        <button class="key" id="k-up" aria-label="Auf">▲</button>
+        <button class="key" id="k-down" aria-label="Ab">▼</button>
+        <button class="key" id="k-ok">OK</button>
+        <button class="key" id="k-back" aria-label="Zurück">◄</button>
+      </div>
+      <div class="device-foot"><div class="grille" id="grille"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><span>USB-C</span></div>
+    </div>
+
+    <div class="side">
+      <section class="card">
+        <h2>Simulation</h2>
+        <div class="sim">
+          <button class="primary" id="b-shot">Eigener Schuss</button>
+          <button id="b-neigh">Nachbarschuss</button>
+          <label><input type="checkbox" id="c-sound"> Ton</label>
+        </div>
+        <p class="keys-legend">Tastatur: <kbd>S</kbd> START · <kbd>↑</kbd><kbd>↓</kbd> · <kbd>Enter</kbd> OK · <kbd>Esc</kbd> Zurück · <kbd>Leertaste</kbd> eigener Schuss · <kbd>N</kbd> Nachbarschuss. START 2 s halten schaltet aus.</p>
+      </section>
+      <section class="card">
+        <h2>Tasten in dieser Ansicht</h2>
+        <dl class="hint-list" id="hints"></dl>
+      </section>
+      <section class="card">
+        <h2>Ereignisse</h2>
+        <ul class="log" id="log"></ul>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---------- Einstellungen (entspricht settings_t der Firmware) ----------
+const MODES = [
+  ['standard', 'Standard'], ['par', 'Par'], ['spy', 'Spy'],
+  ['dry', 'Trockentraining'], ['rep', 'Wiederholung'], ['cd', 'Countdown'],
+];
+const modeLabel = m => MODES.find(x => x[0] === m)[1];
+const S = {
+  mode: 'par', delayType: 'Zufall', delayMin: 1.0, delayMax: 4.0, delayFixed: 3.0,
+  parCount: 1, par: [2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0], parInRep: 'Ein',
+  sens: 6, echo: 50, autoStop: 5,
+  beepHz: 3000, beepMs: 300, beepVol: 'laut',
+  repPause: 5, cdTime: 30, cdWarn: '10 s', dryReps: 5,
+  pf: 'Minor', bright: 100, autoOff: 15, wifi: 'Aus',
+};
+const PRESETS = [
+  { name: 'Bill Drill', set: { mode: 'par', delayType: 'Zufall', delayMin: 2, delayMax: 4, parCount: 1, par: [2.5] } },
+  { name: 'El Presidente', set: { mode: 'par', delayType: 'Zufall', delayMin: 2, delayMax: 4, parCount: 1, par: [10.0] } },
+  { name: 'Doublette', set: { mode: 'par', delayType: 'Zufall', delayMin: 1, delayMax: 3, parCount: 1, par: [1.5] } },
+  { name: 'Ziehen trocken', set: { mode: 'dry', delayType: 'Zufall', delayMin: 2, delayMax: 4, parCount: 1, par: [1.2], dryReps: 10 } },
+];
+const thresholdDb = s => -6 - (s - 1) * 34 / 9;   // Empf. 1 = -6 dBFS … 10 = -40 dBFS
+
+// ---------- Laufzeitzustand ----------
+let state = 'main';
+let history = [];            // neueste zuerst
+let current = null;          // String im Hauptbildschirm
+let sel = 0;                 // gewählter Schuss
+let nextId = 13;
+let run = null;              // { t0, shots, parIdx, parList, endAt, warned, rep }
+let delayEnd = 0, delayStart = 0, pauseEnd = 0, repLeft = 0;
+let menuStack = [], edit = null, score = null, hview = null, histSel = 0, learn = null;
+let toast = null, beepUntil = 0, level = -70, peak = -70, booted = 0;
+
+const now = () => performance.now() / 1000;
+const f2 = t => t.toFixed(2);
+
+// Beispieldaten, damit der Hauptbildschirm nicht leer startet
+(function seed() {
+  const mk = (id, mode, ts, par) => ({ id, mode, par, shots: ts.map(t => ({ t, db: -4 - Math.random() * 3 })), score: null });
+  history = [
+    mk(12, 'par', [1.18, 1.41, 1.62, 1.84, 2.06, 2.31], [2.5]),
+    mk(11, 'standard', [1.32, 1.58], []),
+  ];
+  current = history[0]; sel = current.shots.length - 1;
+})();
+
+// ---------- Ton ----------
+let actx = null;
+function sound(freq, ms, gainLevel) {
+  if (!document.getElementById('c-sound').checked) return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'square'; o.frequency.value = freq; g.gain.value = gainLevel;
+    o.connect(g).connect(actx.destination);
+    o.start(); o.stop(actx.currentTime + ms / 1000);
+  } catch (e) { /* Ton optional */ }
+}
+function beep(kind) {
+  const vol = { leise: 0.02, mittel: 0.05, laut: 0.09 }[S.beepVol];
+  const ms = { start: S.beepMs, par: S.beepMs, end: 700, warn: 120, ack: 80 }[kind];
+  sound(S.beepHz, ms, vol);
+  beepUntil = now() + ms / 1000;
+  const names = { start: 'Start-Beep', par: 'Par-Beep', end: 'Ende-Beep', warn: 'Warn-Beep', ack: 'Quittung' };
+  log(`${names[kind]} ${S.beepHz} Hz, ${ms} ms`, 'beep');
+}
+
+// ---------- Protokoll ----------
+const logEl = document.getElementById('log');
+function log(text, cls = '') {
+  const li = document.createElement('li');
+  const t = document.createElement('time');
+  t.textContent = run && state === 'run' ? f2(now() - run.t0) + ' s' : '–';
+  const s = document.createElement('span'); s.textContent = text; if (cls) s.className = cls;
+  li.append(t, s); logEl.prepend(li);
+  while (logEl.children.length > 80) logEl.lastChild.remove();
+}
+function showToast(text) { toast = { text, until: now() + 1.6 }; }
+
+// ---------- Ablauf ----------
+function parList() {
+  const use = S.mode === 'par' || S.mode === 'dry' || (S.mode === 'rep' && S.parInRep === 'Ein');
+  return use ? S.par.slice(0, S.parCount).slice().sort((a, b) => a - b) : [];
+}
+function startDelay() {
+  const d = S.delayType === 'Zufall' ? S.delayMin + Math.random() * Math.max(0, S.delayMax - S.delayMin)
+          : S.delayType === 'Fest' ? S.delayFixed : 0;
+  delayStart = now(); delayEnd = delayStart + d; state = 'delay';
+  log(`Verzögerung ${d.toFixed(1)} s`);
+}
+function startRun(withBeep) {
+  run = { t0: now(), shots: [], parIdx: 0, parList: parList(), warned: false, delay: delayEnd - delayStart };
+  state = 'run';
+  if (withBeep) beep('start'); else log('Spy: Messung läuft ab Tastendruck');
+}
+function endRun(reason) {
+  const str = { id: nextId++, mode: S.mode, par: run.parList, shots: run.shots, score: null };
+  history.unshift(str); if (history.length > 200) history.pop();
+  current = str; sel = Math.max(0, str.shots.length - 1);
+  log(`String #${str.id} beendet (${reason}), ${str.shots.length} Schuss`);
+  run = null;
+  if (S.mode === 'rep' || (S.mode === 'dry' && --repLeft > 0)) {
+    state = 'pause'; pauseEnd = now() + S.repPause;
+  } else state = 'main';
+}
+function pressStart() {
+  if (state === 'off') return;
+  if (state === 'main') {
+    repLeft = S.mode === 'dry' ? S.dryReps : 0;
+    if (S.mode === 'spy') startRun(false); else startDelay();
+  } else if (state === 'delay') { state = 'main'; log('Start abgebrochen'); }
+  else if (state === 'run') endRun('START');
+  else if (state === 'pause') { state = 'main'; log('Serie beendet'); }
+}
+
+// ---------- Schusssimulation ----------
+function simShot(neighbor) {
+  const db = neighbor ? -14 - Math.random() * 12 : -3 - Math.random() * 4;
+  peak = Math.max(peak, db); level = db;
+  const thr = thresholdDb(S.sens);
+  const who = neighbor ? 'Nachbarschuss' : 'Eigener Schuss';
+  if (state === 'learn') {
+    learn.levels.push(db); log(`${who} ${db.toFixed(1)} dBFS gemessen`); return;
+  }
+  if (state !== 'run') {
+    if (state === 'quick' || state === 'mictest') log(`${who} ${db.toFixed(1)} dBFS – ${db >= thr ? 'würde erkannt' : 'unter Schwelle'}`, db >= thr ? 'shot' : 'ign');
+    else log(`${who} ${db.toFixed(1)} dBFS – Timer läuft nicht`, 'ign');
+    return;
+  }
+  if (S.mode === 'dry') { log(`${who} – Trockentraining, keine Erkennung`, 'ign'); return; }
+  const t = now() - run.t0;
+  const last = run.shots.length ? run.shots[run.shots.length - 1].t : -1;
+  if (db < thr) { log(`${who} ${db.toFixed(1)} dBFS – unter Schwelle ${thr.toFixed(0)} dBFS`, 'ign'); return; }
+  if (t - last < S.echo / 1000) { log(`${who} – in der Echo-Zeit`, 'ign'); return; }
+  if (run.shots.length >= 99) return;
+  run.shots.push({ t, db });
+  log(`Schuss ${run.shots.length}: ${f2(t)} s, ${db.toFixed(1)} dBFS`, 'shot');
+}
+
+// ---------- Menü ----------
+const num = (key, min, max, step, unit = '', dec = 1) => ({ key, min, max, step, unit, dec });
+const opt = (key, options) => ({ key, options });
+function fmtVal(e, v) {
+  if (e.options) return String(v);
+  if (e.key === 'autoStop' && v === 0) return 'Aus';
+  return v.toFixed(e.dec) + (e.unit ? ' ' + e.unit : '');
+}
+function getVal(e) { return e.idx !== undefined ? S[e.key][e.idx] : S[e.key]; }
+function setVal(e, v) { if (e.idx !== undefined) S[e.key][e.idx] = v; else S[e.key] = v; }
+
+const MENUS = {
+  main: () => [
+    { label: 'Modus', value: () => modeLabel(S.mode), sub: 'mode' },
+    { label: 'Startverzögerung', value: () => S.delayType === 'Zufall' ? `${S.delayMin.toFixed(1)}–${S.delayMax.toFixed(1)} s` : S.delayType === 'Fest' ? `${S.delayFixed.toFixed(1)} s` : 'Sofort', sub: 'delay' },
+    { label: 'Par-Zeiten', value: () => S.parCount === 1 ? f2(S.par[0]) + ' s' : `${S.parCount} Zeiten`, sub: 'par' },
+    { label: 'Erkennung', value: () => `Empf. ${S.sens}`, sub: 'detect' },
+    { label: 'Beep', value: () => `${(S.beepHz / 1000).toFixed(1)} kHz, ${S.beepVol}`, sub: 'beep' },
+    { label: 'Modus-Optionen', sub: 'modeopts' },
+    { label: 'Letzter String', value: () => current ? '#' + current.id : '–', sub: 'last', disabled: () => !current },
+    { label: 'Historie', value: () => String(history.length), act: () => { state = 'history'; histSel = 0; } },
+    { label: 'Presets', sub: 'presets' },
+    { label: 'System', sub: 'system' },
+  ],
+  mode: () => MODES.map(([k, l]) => ({ label: l, check: () => S.mode === k, act: () => { S.mode = k; showToast('Modus: ' + l); menuBack(); } })),
+  delay: () => [
+    { label: 'Art', edit: opt('delayType', ['Zufall', 'Fest', 'Sofort']) },
+    { label: 'Zufall von', edit: num('delayMin', 0.5, 10, 0.1, 's'), disabled: () => S.delayType !== 'Zufall' },
+    { label: 'Zufall bis', edit: num('delayMax', 0.5, 10, 0.1, 's'), disabled: () => S.delayType !== 'Zufall' },
+    { label: 'Fest', edit: num('delayFixed', 0, 10, 0.1, 's'), disabled: () => S.delayType !== 'Fest' },
+  ],
+  par: () => [
+    { label: 'Anzahl', edit: num('parCount', 1, 10, 1, '', 0) },
+    ...Array.from({ length: S.parCount }, (_, i) => ({ label: `Par ${i + 1}`, edit: { ...num('par', 0.1, 99.99, 0.05, 's', 2), idx: i } })),
+    { label: 'In Wiederholung', edit: opt('parInRep', ['Ein', 'Aus']) },
+  ],
+  detect: () => [
+    { label: 'Empfindlichkeit', edit: num('sens', 1, 10, 1, '', 0) },
+    { label: 'Echo-Zeit', edit: num('echo', 20, 500, 10, 'ms', 0) },
+    { label: 'Auto-Stopp', edit: num('autoStop', 0, 60, 1, 's', 0) },
+    { label: 'Mikrofon-Test', act: () => { state = 'mictest'; } },
+    { label: 'Umgebung lernen', act: () => { state = 'learn'; learn = { end: now() + 10, levels: [], done: false }; log('Umgebung lernen: 10 s Nachbarschüsse aufnehmen'); } },
+  ],
+  beep: () => [
+    { label: 'Tonhöhe', edit: num('beepHz', 1000, 4000, 100, 'Hz', 0) },
+    { label: 'Dauer', edit: num('beepMs', 100, 1000, 50, 'ms', 0) },
+    { label: 'Lautstärke', edit: opt('beepVol', ['leise', 'mittel', 'laut']) },
+    { label: 'Test-Beep', act: () => beep('start') },
+  ],
+  modeopts: () => [
+    { label: 'Pause Wiederholung', edit: num('repPause', 3, 60, 1, 's', 0) },
+    { label: 'Countdown-Zeit', edit: num('cdTime', 5, 300, 5, 's', 0) },
+    { label: 'Countdown-Warnung', edit: opt('cdWarn', ['Aus', '5 s', '10 s', '15 s', '30 s']) },
+    { label: 'Trocken-Wiederh.', edit: num('dryReps', 1, 20, 1, '', 0) },
+  ],
+  last: () => [
+    { label: 'Wertung eingeben', act: () => startScore() },
+    { label: 'Letzten Schuss löschen', disabled: () => !current || !current.shots.length,
+      act: () => { current.shots.pop(); sel = Math.max(0, current.shots.length - 1); showToast('Letzter Schuss gelöscht'); log(`String #${current.id}: letzter Schuss gelöscht`); } },
+    { label: 'Power Factor', edit: opt('pf', ['Minor', 'Major']) },
+  ],
+  presets: () => PRESETS.map(p => ({ label: p.name, value: () => '', act: () => { const oldPar = S.par; Object.assign(S, JSON.parse(JSON.stringify(p.set))); S.par = p.set.par.concat(oldPar.slice(p.set.par.length)); showToast('Geladen: ' + p.name); toMain(); } })),
+  system: () => [
+    { label: 'Helligkeit', edit: num('bright', 20, 100, 10, '%', 0) },
+    { label: 'Auto-Aus', edit: num('autoOff', 5, 60, 5, 'min', 0) },
+    { label: 'WLAN', edit: opt('wifi', ['Aus', 'Ein']) },
+    { label: 'Akku', value: () => '3,92 V · 78 %' },
+    { label: 'Firmware', value: () => '0.1.0' },
+    { label: 'Werkseinstellungen', act: () => showToast('Im Prototyp deaktiviert') },
+  ],
+};
+const MENU_TITLES = { main: 'Menü', mode: 'Modus', delay: 'Startverzögerung', par: 'Par-Zeiten', detect: 'Erkennung', beep: 'Beep', modeopts: 'Modus-Optionen', last: 'Letzter String', presets: 'Presets', system: 'System' };
+
+function openMenu(id) { menuStack.push({ id, sel: 0, top: 0 }); state = 'menu'; }
+function menuBack() { menuStack.pop(); if (!menuStack.length) state = 'main'; }
+function toMain() { menuStack = []; edit = null; state = 'main'; }
+function menuItems() { return MENUS[menuStack[menuStack.length - 1].id](); }
+function menuMove(d) {
+  const m = menuStack[menuStack.length - 1], items = menuItems();
+  m.sel = (m.sel + d + items.length) % items.length;
+}
+function menuOk() {
+  const m = menuStack[menuStack.length - 1], it = menuItems()[m.sel];
+  if (it.disabled && it.disabled()) return;
+  if (it.sub) openMenu(it.sub);
+  else if (it.edit) { edit = { e: it.edit, label: it.label, value: getVal(it.edit), orig: getVal(it.edit) }; state = 'edit'; }
+  else if (it.act) it.act();
+}
+function editMove(d, mult = 1) {
+  const e = edit.e;
+  if (e.options) { const i = e.options.indexOf(edit.value); edit.value = e.options[(i + d + e.options.length) % e.options.length]; return; }
+  let v = Math.round((edit.value + d * e.step * mult) / e.step) * e.step;
+  edit.value = Math.min(e.max, Math.max(e.min, +v.toFixed(4)));
+}
+function editOk() {
+  setVal(edit.e, edit.value);
+  if (edit.e.key === 'delayMin' && S.delayMax < S.delayMin) S.delayMax = S.delayMin;
+  if (edit.e.key === 'delayMax' && S.delayMin > S.delayMax) S.delayMin = S.delayMax;
+  const m = menuStack[menuStack.length - 1]; if (m) m.sel = Math.min(m.sel, menuItems().length - 1);
+  edit = null; state = 'menu';
+}
+
+// ---------- Wertung ----------
+const SCORE_FIELDS = ['A', 'C', 'D', 'Miss', 'NS'];
+function startScore() {
+  const s = current.score || [current.shots.length, 0, 0, 0, 0];
+  score = { v: [...s], idx: 0, result: false }; state = 'score';
+}
+function scorePoints(v) {
+  const p = S.pf === 'Major' ? [5, 4, 2] : [5, 3, 1];
+  return v[0] * p[0] + v[1] * p[1] + v[2] * p[2] - 10 * (v[3] + v[4]);
+}
+function hitFactor(str, v) {
+  const tot = str.shots.length ? str.shots[str.shots.length - 1].t : 0;
+  return tot > 0 ? Math.max(0, scorePoints(v)) / tot : 0;
+}
+
+// ---------- Tasten ----------
+function key(k, repeat = false, mult = 1) {
+  if (state === 'off') { if (k === 'start') { state = 'main'; booted = now() + 0.8; log('Eingeschaltet'); } return; }
+  if (now() < booted) return;
+  switch (state) {
+    case 'main':
+      if (k === 'start') pressStart();
+      else if ((k === 'up' || k === 'down') && current && current.shots.length) {
+        const n = current.shots.length; sel = (sel + (k === 'down' ? 1 : -1) + n) % n;
+      } else if (k === 'ok') openMenu('main');
+      else if (k === 'back') state = 'quick';
+      break;
+    case 'delay': case 'run': case 'pause':
+      if (k === 'start') pressStart();
+      break;
+    case 'menu':
+      if (k === 'up') menuMove(-1); else if (k === 'down') menuMove(1);
+      else if (k === 'ok') menuOk(); else if (k === 'back') menuBack();
+      break;
+    case 'edit':
+      if (k === 'up') editMove(1, mult); else if (k === 'down') editMove(-1, mult);
+      else if (k === 'ok') editOk(); else if (k === 'back') { edit = null; state = 'menu'; }
+      break;
+    case 'quick':
+      if (k === 'up') S.sens = Math.min(10, S.sens + 1); else if (k === 'down') S.sens = Math.max(1, S.sens - 1);
+      else if (k === 'ok' || k === 'back') state = 'main';
+      else if (k === 'start') { state = 'main'; pressStart(); }
+      break;
+    case 'mictest':
+      if (k === 'up') S.sens = Math.min(10, S.sens + 1); else if (k === 'down') S.sens = Math.max(1, S.sens - 1);
+      else if (k === 'ok' || k === 'back') state = 'menu';
+      break;
+    case 'learn':
+      if (learn.done && k === 'ok') { S.sens = learn.suggest; showToast('Empfindlichkeit ' + S.sens); state = 'menu'; }
+      else if (k === 'back') state = 'menu';
+      break;
+    case 'history':
+      if (!history.length) { if (k === 'back') state = 'menu'; break; }
+      if (k === 'up') histSel = (histSel - 1 + history.length) % history.length;
+      else if (k === 'down') histSel = (histSel + 1) % history.length;
+      else if (k === 'ok') { hview = { str: history[histSel], sel: Math.max(0, history[histSel].shots.length - 1) }; state = 'hview'; }
+      else if (k === 'back') state = 'menu';
+      break;
+    case 'hview':
+      if ((k === 'up' || k === 'down') && hview.str.shots.length) {
+        const n = hview.str.shots.length; hview.sel = (hview.sel + (k === 'down' ? 1 : -1) + n) % n;
+      } else if (k === 'back') state = 'history';
+      else if (k === 'ok') { current = hview.str; sel = hview.sel; toMain(); }
+      break;
+    case 'score':
+      if (score.result) {
+        if (k === 'ok') { current.score = score.v; showToast('Wertung gespeichert'); log(`String #${current.id}: HF ${hitFactor(current, score.v).toFixed(4)}`); toMain(); }
+        else if (k === 'back') score.result = false;
+        break;
+      }
+      if (k === 'up') score.v[score.idx] = Math.min(99, score.v[score.idx] + 1);
+      else if (k === 'down') score.v[score.idx] = Math.max(0, score.v[score.idx] - 1);
+      else if (k === 'ok') { if (score.idx < 4) score.idx++; else score.result = true; }
+      else if (k === 'back') { if (score.idx > 0) score.idx--; else state = 'menu'; }
+      break;
+  }
+  renderHints();
+}
+function longStart() {
+  if (state === 'off' || state === 'run' || state === 'delay') return false;
+  state = 'off'; menuStack = []; log('Ausgeschaltet (START 2 s)'); renderHints(); return true;
+}
+function longBack() {
+  if (state === 'menu' || state === 'edit' || state === 'history' || state === 'hview' || state === 'mictest') { toMain(); renderHints(); return true; }
+  return false;
+}
+
+// Druck, Halten, Wiederholen – wie der buttons-Task der Firmware
+function bindKey(el, k, kb) {
+  let timer = null, rep = null, longDone = false, count = 0;
+  const down = () => {
+    el.classList.add('down'); longDone = false; count = 0;
+    if (k === 'up' || k === 'down') {
+      key(k);
+      rep = setTimeout(function again() { count++; key(k, true, count > 15 ? 10 : 1); rep = setTimeout(again, 90); }, 400);
+    } else if (k === 'start') timer = setTimeout(() => { longDone = longStart(); }, 2000);
+    else if (k === 'back') timer = setTimeout(() => { longDone = longBack(); }, 1000);
+  };
+  const up = () => {
+    if (!el.classList.contains('down')) return;
+    el.classList.remove('down'); clearTimeout(timer); clearTimeout(rep);
+    if (k !== 'up' && k !== 'down' && !longDone) key(k);
+  };
+  el.addEventListener('pointerdown', e => { e.preventDefault(); down(); });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach(t => el.addEventListener(t, up));
+  kb.down = down; kb.up = up;
+}
+const KB = { start: {}, up: {}, down: {}, ok: {}, back: {} };
+bindKey(document.getElementById('k-start'), 'start', KB.start);
+bindKey(document.getElementById('k-up'), 'up', KB.up);
+bindKey(document.getElementById('k-down'), 'down', KB.down);
+bindKey(document.getElementById('k-ok'), 'ok', KB.ok);
+bindKey(document.getElementById('k-back'), 'back', KB.back);
+const KEYMAP = { s: 'start', S: 'start', ArrowUp: 'up', ArrowDown: 'down', Enter: 'ok', Escape: 'back', Backspace: 'back' };
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' && e.key === ' ') return;
+  if (e.key === ' ') { e.preventDefault(); if (!e.repeat) simShot(false); return; }
+  if (e.key === 'n' || e.key === 'N') { if (!e.repeat) simShot(true); return; }
+  const k = KEYMAP[e.key]; if (!k || e.repeat) return;
+  e.preventDefault(); KB[k].down();
+});
+document.addEventListener('keyup', e => { const k = KEYMAP[e.key]; if (k) KB[k].up(); });
+document.getElementById('b-shot').addEventListener('click', () => simShot(false));
+document.getElementById('b-neigh').addEventListener('click', () => simShot(true));
+
+// ---------- Tastenhilfe ----------
+function hints() {
+  switch (state) {
+    case 'off': return [['START', 'Einschalten']];
+    case 'main': return [['START', 'Neuer String (2 s halten: aus)'], ['▲ ▼', 'Durch die Schüsse blättern'], ['OK', 'Menü'], ['◄', 'Schnelleinstellung Empfindlichkeit']];
+    case 'delay': return [['START', 'Abbrechen']];
+    case 'run': return [['START', 'Stopp'], ['', S.autoStop ? `Auto-Stopp nach ${S.autoStop} s ohne Schuss` : 'Auto-Stopp aus']];
+    case 'pause': return [['START', 'Serie beenden']];
+    case 'menu': return [['▲ ▼', 'Auswahl'], ['OK', 'Öffnen / bearbeiten'], ['◄', 'Zurück (1 s halten: Hauptbildschirm)']];
+    case 'edit': return [['▲ ▼', 'Wert ändern, halten = schneller'], ['OK', 'Übernehmen'], ['◄', 'Verwerfen']];
+    case 'quick': case 'mictest': return [['▲ ▼', 'Empfindlichkeit'], ['OK / ◄', 'Fertig'], ['Simulation', 'Schüsse abgeben und Pegel gegen die Schwelle prüfen']];
+    case 'learn': return learn.done ? [['OK', 'Vorschlag übernehmen'], ['◄', 'Verwerfen']] : [['Simulation', '„Nachbarschuss“ mehrmals drücken'], ['◄', 'Abbrechen']];
+    case 'history': return [['▲ ▼', 'String wählen'], ['OK', 'Anzeigen'], ['◄', 'Zurück']];
+    case 'hview': return [['▲ ▼', 'Schüsse'], ['OK', 'Als aktuellen String übernehmen'], ['◄', 'Zurück zur Liste']];
+    case 'score': return score.result ? [['OK', 'Wertung speichern'], ['◄', 'Korrigieren']] : [['▲ ▼', 'Anzahl ändern'], ['OK', 'Nächstes Feld'], ['◄', 'Vorheriges Feld']];
+  }
+  return [];
+}
+function renderHints() {
+  const dl = document.getElementById('hints'); dl.textContent = '';
+  hints().forEach(([k, t]) => { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = t; dl.append(dt, dd); });
+}
+
+// ---------- Zeichnen (320 × 240 wie das ST7789-Display) ----------
+const cv = document.getElementById('lcd'), g = cv.getContext('2d');
+g.setTransform(2, 0, 0, 2, 0, 0);
+const C = { bg: '#000', fg: '#f2f2ee', muted: '#8b918c', dim: '#3a3f3c', panel: '#141715', acc: '#ff7a2e', good: '#4ade80', bad: '#ff5a4f' };
+const font = (size, w = 600) => `${w} ${size}px "Barlow Semi Condensed", "Arial Narrow", sans-serif`;
+function text(s, x, y, size, color = C.fg, align = 'left', w = 600) {
+  g.font = font(size, w); g.fillStyle = color; g.textAlign = align; g.textBaseline = 'alphabetic'; g.fillText(s, x, y);
+}
+function statusBar(title, titleColor = C.acc) {
+  g.fillStyle = C.panel; g.fillRect(0, 0, 320, 20);
+  text(title.toUpperCase(), 8, 15, 14, titleColor, 'left', 700);
+  // Akku
+  g.strokeStyle = C.fg; g.lineWidth = 1; g.strokeRect(290.5, 5.5, 22, 10); g.fillStyle = C.fg; g.fillRect(313, 8, 2, 5); g.fillRect(292, 7, 15, 7);
+  text('S' + S.sens, 282, 15, 14, C.fg, 'right');
+  if (now() < beepUntil) { g.fillStyle = C.acc; g.beginPath(); g.moveTo(244, 7); g.lineTo(248, 7); g.lineTo(253, 3); g.lineTo(253, 17); g.lineTo(248, 13); g.lineTo(244, 13); g.fill(); }
+  if (S.wifi === 'Ein') text('WLAN', 240, 15, 12, C.muted, 'right', 500);
+}
+function footer(s) { g.fillStyle = C.panel; g.fillRect(0, 222, 320, 18); text(s, 160, 235, 13, C.muted, 'center', 500); }
+function label(s, x, y, align = 'left') { text(s.toUpperCase(), x, y, 11, C.muted, align, 600); }
+
+function drawString(str, idx, title, foot) {
+  statusBar(title);
+  const n = str ? str.shots.length : 0, par = (str && str.par) || [], lastPar = par.length ? par[par.length - 1] : null;
+  if (!n) {
+    text('0.00', 160, 118, 84, C.fg, 'center');
+    text(str ? 'Keine Schüsse erkannt' : 'Bereit – START drücken', 160, 152, 20, C.muted, 'center', 500);
+    footer(foot); return;
+  }
+  const s = str.shots[idx], late = lastPar !== null && s.t > lastPar + 1e-9;
+  label(`Schuss ${idx + 1}/${n}`, 10, 38);
+  if (lastPar !== null) label(`Par ${f2(lastPar)}`, 310, 38, 'right');
+  text(f2(s.t), 160, 112, 84, late ? C.bad : C.fg, 'center');
+  const split = idx > 0 ? s.t - str.shots[idx - 1].t : s.t;
+  text(`Split ${f2(split)}`, 10, 140, 22, C.fg, 'left', 500);
+  text(`1. Schuss ${f2(str.shots[0].t)}`, 310, 140, 22, C.fg, 'right', 500);
+  g.fillStyle = C.dim; g.fillRect(10, 152, 300, 1);
+  const total = str.shots[n - 1].t;
+  const splits = str.shots.slice(1).map((x, i) => x.t - str.shots[i].t);
+  const cols = [['Gesamt', f2(total)], ['Ø Split', splits.length ? f2((total - str.shots[0].t) / splits.length) : '–'],
+    str.score ? ['Hit Factor', hitFactor(str, str.score).toFixed(3)] : ['Schnellster', splits.length ? f2(Math.min(...splits)) : '–']];
+  cols.forEach(([l, v], i) => { const x = 10 + i * 105; label(l, x, 172); text(v, x, 200, 26, i === 2 && str.score ? C.acc : C.fg); });
+  footer(foot);
+}
+function drawMenu() {
+  const m = menuStack[menuStack.length - 1], items = menuItems();
+  statusBar(MENU_TITLES[m.id], C.fg);
+  const rows = 7, rh = 28, y0 = 22;
+  if (m.sel < m.top) m.top = m.sel; if (m.sel >= m.top + rows) m.top = m.sel - rows + 1;
+  items.slice(m.top, m.top + rows).forEach((it, k) => {
+    const i = m.top + k, y = y0 + k * rh, on = i === m.sel, off = it.disabled && it.disabled();
+    if (on) { g.fillStyle = C.acc; g.fillRect(0, y, 314, rh); }
+    const col = on ? '#160800' : off ? C.dim : C.fg;
+    text((it.check && it.check() ? '● ' : '') + it.label, 10, y + 19, 18, col, 'left', on ? 700 : 500);
+    let v = it.value ? it.value() : it.edit ? fmtVal(it.edit, getVal(it.edit)) : '';
+    if (it.sub || (it.act && !it.value)) v = (v ? v + '  ' : '') + '›';
+    text(v, 306, y + 19, 16, on ? '#160800' : C.muted, 'right', 500);
+  });
+  if (items.length > rows) { const h = 196 * rows / items.length; g.fillStyle = C.dim; g.fillRect(316, 22 + 196 * m.top / items.length, 3, h); }
+  footer('▲▼ Auswahl   OK Öffnen   ◄ Zurück');
+}
+function drawEdit() {
+  drawMenu(); g.fillStyle = 'rgba(0,0,0,.78)'; g.fillRect(0, 20, 320, 202);
+  g.fillStyle = C.panel; g.fillRect(24, 44, 272, 150); g.fillStyle = C.acc; g.fillRect(24, 44, 272, 3);
+  text(edit.label, 160, 76, 20, C.muted, 'center', 500);
+  text(fmtVal(edit.e, edit.value), 160, 138, edit.e.options ? 44 : 56, C.fg, 'center');
+  if (!edit.e.options) text(`${fmtVal(edit.e, edit.e.min)} … ${fmtVal(edit.e, edit.e.max)}`, 160, 176, 14, C.muted, 'center', 500);
+  footer('▲▼ Ändern   OK Übernehmen   ◄ Verwerfen');
+}
+function levelMeter(y, showThr = true) {
+  const x0 = 20, w = 280, toX = db => x0 + w * Math.min(1, Math.max(0, (db + 60) / 60));
+  g.fillStyle = C.dim; g.fillRect(x0, y, w, 16);
+  const thr = thresholdDb(S.sens);
+  g.fillStyle = level >= thr ? C.acc : C.good; g.fillRect(x0, y, toX(level) - x0, 16);
+  g.fillStyle = C.fg; g.fillRect(toX(peak) - 1, y - 2, 2, 20);
+  if (showThr) { g.fillStyle = C.bad; g.fillRect(toX(thr) - 1, y - 6, 3, 28); text(`Schwelle ${thr.toFixed(0)} dBFS`, toX(thr), y + 36, 12, C.muted, 'center', 500); }
+  ['-60', '-40', '-20', '0'].forEach((l, i) => text(l, x0 + i * w / 3, y - 8, 11, C.muted, 'center', 500));
+}
+function drawQuick(title) {
+  statusBar(title, C.fg);
+  text('Empfindlichkeit', 160, 48, 18, C.muted, 'center', 500);
+  text(String(S.sens), 160, 112, 64, C.fg, 'center');
+  for (let i = 0; i < 10; i++) { g.fillStyle = i < S.sens ? C.acc : C.dim; g.fillRect(40 + i * 25, 124, 21, 8); }
+  levelMeter(162);
+  footer('▲▼ Ändern   OK Fertig');
+}
+function drawLearn() {
+  statusBar('Umgebung lernen', C.fg);
+  if (!learn.done) {
+    const left = Math.max(0, learn.end - now());
+    text('Nachbarn schießen lassen', 160, 60, 20, C.fg, 'center', 500);
+    text(left.toFixed(0) + ' s', 160, 124, 56, C.acc, 'center');
+    text(`${learn.levels.length} Schüsse gemessen`, 160, 156, 18, C.muted, 'center', 500);
+    levelMeter(184, false); footer('◄ Abbrechen'); return;
+  }
+  if (!learn.levels.length) { text('Keine Schüsse gemessen', 160, 100, 20, C.fg, 'center', 500); text('Empfindlichkeit unverändert', 160, 130, 16, C.muted, 'center', 500); footer('◄ Zurück'); return; }
+  text(`Lautester Nachbar ${Math.max(...learn.levels).toFixed(1)} dBFS`, 160, 58, 18, C.muted, 'center', 500);
+  text('Vorschlag', 160, 88, 18, C.fg, 'center', 500);
+  text(String(learn.suggest), 160, 150, 64, C.acc, 'center');
+  text(`Schwelle ${thresholdDb(learn.suggest).toFixed(0)} dBFS`, 160, 180, 16, C.muted, 'center', 500);
+  footer('OK Übernehmen   ◄ Verwerfen');
+}
+function drawRun() {
+  const t = now() - run.t0, n = run.shots.length;
+  statusBar(modeLabel(S.mode));
+  if (S.mode === 'cd') {
+    label('Restzeit', 160, 40, 'center');
+    text(Math.max(0, S.cdTime - t).toFixed(1), 160, 130, 96, C.acc, 'center');
+    text(`${n} Schuss`, 160, 170, 22, C.fg, 'center', 500);
+  } else if (S.mode === 'dry') {
+    label('Trockentraining', 160, 40, 'center');
+    text(f2(t), 160, 128, 88, C.fg, 'center');
+    text(`Durchgang ${S.dryReps - repLeft + 1}/${S.dryReps}`, 160, 166, 20, C.muted, 'center', 500);
+  } else {
+    label(`Läuft ${f2(t)} s`, 10, 38);
+    label(n ? `Schuss ${n}` : 'Warte auf Schuss', 310, 38, 'right');
+    const last = n ? run.shots[n - 1].t : null;
+    const late = last !== null && run.parList.length && last > run.parList[run.parList.length - 1];
+    text(n ? f2(last) : '–.––', 160, 124, 96, late ? C.bad : C.fg, 'center');
+    if (n) text(`Split ${f2(n > 1 ? last - run.shots[n - 2].t : last)}`, 160, 160, 24, C.fg, 'center', 500);
+  }
+  // Zeitleiste mit Par-Marken und Schüssen
+  const span = Math.max(run.parList.length ? run.parList[run.parList.length - 1] * 1.25 : 0, S.mode === 'cd' ? S.cdTime : 0, t + 0.5, 3);
+  const x = v => 10 + 300 * v / span;
+  g.fillStyle = C.dim; g.fillRect(10, 206, 300, 4);
+  run.parList.forEach(p => { g.fillStyle = C.good; g.fillRect(x(p) - 1, 198, 2, 20); });
+  run.shots.forEach(s => { g.fillStyle = C.fg; g.fillRect(x(s.t) - 1, 202, 2, 12); });
+  g.fillStyle = C.acc; g.fillRect(x(t) - 1, 196, 3, 24);
+}
+function drawDelay() {
+  statusBar(modeLabel(S.mode));
+  text('Bereit', 160, 112, 64, C.fg, 'center');
+  const k = Math.floor((now() - delayStart) * 3) % 4;
+  for (let i = 0; i < 3; i++) { g.fillStyle = i < k ? C.acc : C.dim; g.beginPath(); g.arc(136 + i * 24, 146, 6, 0, 7); g.fill(); }
+  text(S.delayType === 'Zufall' ? 'Zufallsstart' : S.delayType === 'Fest' ? `Start in ${Math.max(0, delayEnd - now()).toFixed(1)} s` : '', 160, 186, 18, C.muted, 'center', 500);
+  footer('START Abbrechen');
+}
+function drawPause() {
+  statusBar(modeLabel(S.mode));
+  text('Nächster Durchgang', 160, 70, 22, C.muted, 'center', 500);
+  text(Math.ceil(Math.max(0, pauseEnd - now())) + ' s', 160, 136, 72, C.acc, 'center');
+  if (current && current.shots.length) text(`Letzter: ${current.shots.length} Schuss, ${f2(current.shots[current.shots.length - 1].t)} s`, 160, 176, 18, C.fg, 'center', 500);
+  footer('START Serie beenden');
+}
+function drawHistory() {
+  statusBar('Historie', C.fg);
+  if (!history.length) { text('Noch keine Strings', 160, 120, 20, C.muted, 'center', 500); footer('◄ Zurück'); return; }
+  const rows = 7, rh = 28, top = Math.max(0, Math.min(histSel - 3, history.length - rows));
+  history.slice(top, top + rows).forEach((s, k) => {
+    const i = top + k, y = 22 + k * rh, on = i === histSel, col = on ? '#160800' : C.fg;
+    if (on) { g.fillStyle = C.acc; g.fillRect(0, y, 320, rh); }
+    text('#' + s.id, 10, y + 19, 17, col, 'left', 700);
+    text(modeLabel(s.mode), 64, y + 19, 16, on ? col : C.muted, 'left', 500);
+    text(`${s.shots.length} Sch.`, 210, y + 19, 16, on ? col : C.muted, 'right', 500);
+    text(s.shots.length ? f2(s.shots[s.shots.length - 1].t) : '–', 306, y + 19, 18, col, 'right');
+  });
+  footer('▲▼ Auswahl   OK Anzeigen   ◄ Zurück');
+}
+function drawScore() {
+  statusBar('Wertung #' + current.id, C.fg);
+  if (score.result) {
+    const pts = scorePoints(score.v), tot = current.shots.length ? current.shots[current.shots.length - 1].t : 0;
+    label(`Punkte (${S.pf})`, 20, 50); text(String(pts), 20, 84, 32);
+    label('Zeit', 180, 50); text(f2(tot), 180, 84, 32);
+    label('Hit Factor', 20, 120); text(hitFactor(current, score.v).toFixed(4), 20, 180, 64, C.acc);
+    footer('OK Speichern   ◄ Korrigieren'); return;
+  }
+  SCORE_FIELDS.forEach((f, i) => {
+    const x = 12 + i * 61, on = i === score.idx;
+    g.fillStyle = on ? C.acc : C.panel; g.fillRect(x, 50, 54, 96);
+    text(f, x + 27, 72, 16, on ? '#160800' : C.muted, 'center', 700);
+    text(String(score.v[i]), x + 27, 126, 40, on ? '#160800' : C.fg, 'center');
+  });
+  text(`Punkte ${scorePoints(score.v)}   ·   HF ${hitFactor(current, score.v).toFixed(4)}`, 160, 186, 18, C.fg, 'center', 500);
+  footer('▲▼ Anzahl   OK Weiter   ◄ Zurück');
+}
+function draw() {
+  g.fillStyle = C.bg; g.fillRect(0, 0, 320, 240);
+  if (state === 'off') { renderBrightness(0); return; }
+  if (now() < booted) { text('SHOT TIMER', 160, 118, 40, C.acc, 'center', 700); text('Firmware 0.1.0', 160, 146, 16, C.muted, 'center', 500); renderBrightness(); return; }
+  switch (state) {
+    case 'main': drawString(current, sel, modeLabel(S.mode), '▲▼ Schüsse   OK Menü   ◄ Empfindl.'); break;
+    case 'delay': drawDelay(); break;
+    case 'run': drawRun(); break;
+    case 'pause': drawPause(); break;
+    case 'menu': drawMenu(); break;
+    case 'edit': drawEdit(); break;
+    case 'quick': drawQuick('Schnelleinstellung'); break;
+    case 'mictest': drawQuick('Mikrofon-Test'); break;
+    case 'learn': drawLearn(); break;
+    case 'history': drawHistory(); break;
+    case 'hview': drawString(hview.str, hview.sel, 'Historie #' + hview.str.id, '▲▼ Schüsse   OK Übernehmen   ◄ Liste'); break;
+    case 'score': drawScore(); break;
+  }
+  if (toast && now() < toast.until) {
+    g.font = font(16, 600); const w = g.measureText(toast.text).width + 28;
+    g.fillStyle = C.fg; g.fillRect(160 - w / 2, 186, w, 28); text(toast.text, 160, 205, 16, '#000', 'center');
+  }
+  renderBrightness();
+}
+function renderBrightness(b = S.bright) { cv.style.filter = `brightness(${0.35 + 0.65 * b / 100})`; if (!b) cv.style.filter = 'brightness(0)'; }
+
+// ---------- Hauptschleife (entspricht EV_TICK im Kern) ----------
+let lastState = '';
+function tick() {
+  const t = now();
+  if (state === 'delay' && t >= delayEnd) startRun(true);
+  if (state === 'run') {
+    const rt = t - run.t0;
+    while (run.parIdx < run.parList.length && rt >= run.parList[run.parIdx]) { beep('par'); run.parIdx++; }
+    if (S.mode === 'cd') {
+      const warn = parseInt(S.cdWarn, 10);
+      if (warn && !run.warned && rt >= S.cdTime - warn) { beep('warn'); run.warned = true; }
+      if (rt >= S.cdTime) { beep('end'); endRun('Countdown-Ende'); }
+    } else if (S.mode === 'dry') {
+      const endT = run.parList.length ? run.parList[run.parList.length - 1] + 0.6 : 3;
+      if (rt >= endT) endRun('Par-Ende');
+    } else if (S.autoStop) {
+      const ref = Math.max(run.shots.length ? run.shots[run.shots.length - 1].t : 0, run.parList.length ? run.parList[run.parList.length - 1] : 0);
+      if (rt - ref >= S.autoStop) endRun('Auto-Stopp');
+    }
+    if (state === 'run' && rt >= 999.99) endRun('Maximalzeit');
+  }
+  if (state === 'pause' && t >= pauseEnd) startDelay();
+  if (state === 'learn' && !learn.done && t >= learn.end) {
+    learn.done = true;
+    if (learn.levels.length) {
+      const target = Math.max(...learn.levels) + 6; let s = 10;
+      while (s > 1 && thresholdDb(s) < target) s--;
+      learn.suggest = s; log(`Vorschlag Empfindlichkeit ${s}`);
+    }
+    renderHints();
+  }
+  level = Math.max(-60, level - 1.2) + (Math.random() - 0.5) * 0.8;
+  if (level < -52) level = -55 + Math.random() * 3;
+  peak = Math.max(level, peak - 0.25);
+  document.getElementById('grille').classList.toggle('on', t < beepUntil);
+  if (state !== lastState) { lastState = state; renderHints(); }
+  draw();
+  requestAnimationFrame(tick);
+}
+renderHints();
+(document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(() => requestAnimationFrame(tick));
+</script>
