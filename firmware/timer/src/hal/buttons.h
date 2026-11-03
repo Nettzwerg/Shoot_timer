@@ -25,4 +25,6 @@ typedef struct {
 typedef void (*btn_cb_t)(const btn_event_t *ev);
 
 // Startet den Abfrage-Task. Die Taste BOOT des DevKits wirkt zusätzlich als START.
+// Tasten, die beim Start bereits gedrückt sind (z. B. START zum Aufwecken), lösen erst nach
+// dem Loslassen und erneuten Drücken etwas aus.
 void buttons_start(btn_cb_t cb);

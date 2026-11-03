@@ -305,10 +305,11 @@ static void item_value(const ui_t *ui, const item_t *it, char *buf, size_t len)
     case IT_INFO:
         if (it->arg == I_FIRMWARE) {
             snprintf(buf, len, "%s", UI_FW_VERSION);
-        } else if (ui->battery_v > 0) {
-            snprintf(buf, len, "%.2f V", (double)ui->battery_v);
+        } else if (ui->battery_state == BATT_NONE) {
+            snprintf(buf, len, "kein Akku (USB)");
         } else {
-            snprintf(buf, len, "–");
+            snprintf(buf, len, "%.2f V · %u %%%s", (double)ui->battery_v, ui->battery_pct,
+                     ui->charging ? " · lädt" : "");
         }
         break;
     case IT_SUB:
@@ -491,6 +492,26 @@ void ui_tick(ui_t *ui, int64_t now_us)
     if (ui->level.peak < ui->level.db) {
         ui->level.peak = ui->level.db;
     }
+}
+
+void ui_battery(ui_t *ui, float v, uint8_t pct, batt_state_t state, bool charging)
+{
+    ui->battery_v = v;
+    ui->battery_pct = pct;
+    ui->battery_state = state;
+    ui->charging = charging;
+}
+
+void ui_message(ui_t *ui, const char *text, int64_t now_us)
+{
+    toast(ui, text, now_us);
+}
+
+void ui_notice(ui_t *ui, const char *text)
+{
+    snprintf(ui->notice, sizeof(ui->notice), "%s", text);
+    ui->depth = 0;
+    ui->screen = UI_NOTICE;
 }
 
 bool ui_animating(const ui_t *ui, const timer_core_t *snap)
@@ -730,6 +751,10 @@ static void browse(uint8_t *sel, uint8_t n, btn_key_t key)
 
 void ui_key(ui_t *ui, const btn_event_t *ev, const timer_core_t *snap, int64_t now_us)
 {
+    // Hinweis vor dem Ausschalten: keine Bedienung mehr
+    if (ui->screen == UI_NOTICE) {
+        return;
+    }
     // Ausgeschaltet: nur START weckt
     if (ui->screen == UI_OFF) {
         if (ev->key == BTN_START && ev->press == PRESS_SHORT) {
@@ -876,6 +901,7 @@ void ui_key(ui_t *ui, const btn_event_t *ev, const timer_core_t *snap, int64_t n
         break;
 
     case UI_OFF:
+    case UI_NOTICE:
         break;
     }
 }
@@ -886,11 +912,17 @@ static void status_bar(ui_t *ui, gfx_t *g, const char *title, gfx_color_t title_
 {
     gfx_rect(g, 0, 0, GFX_W, 20, C_PANEL);
     gfx_text(g, F_SMALL, 8, 16, GFX_LEFT, title_color, title);
-    // Akku-Symbol (Füllstand folgt mit der Akkumessung, M6)
-    gfx_rect(g, 290, 5, 22, 11, C_FG);
-    gfx_rect(g, 291, 6, 20, 9, C_PANEL);
-    gfx_rect(g, 312, 8, 2, 5, C_FG);
-    gfx_rect(g, 292, 7, 15, 7, C_FG);
+    if (ui->battery_state == BATT_NONE) {
+        gfx_text(g, F_LABEL, 314, 15, GFX_RIGHT, C_MUTED, "USB");
+    } else {
+        // Akku-Symbol mit Füllstand; rot bei schwachem Akku, grün beim Laden
+        gfx_color_t c = ui->battery_state >= BATT_LOW ? C_BAD : C_FG;
+        int fill = 18 * ui->battery_pct / 100;
+        gfx_rect(g, 290, 5, 22, 11, c);
+        gfx_rect(g, 291, 6, 20, 9, C_PANEL);
+        gfx_rect(g, 312, 8, 2, 5, c);
+        gfx_rect(g, 292, 7, fill < 1 ? 1 : fill, 7, ui->charging ? C_GOOD : c);
+    }
     gfx_textf(g, F_SMALL, 282, 16, GFX_RIGHT, C_FG, "S%u", ui->set->sensitivity);
 }
 
@@ -1272,6 +1304,11 @@ void ui_render(ui_t *ui, const timer_core_t *snap, int64_t now_us, gfx_t *g)
     if (ui->screen == UI_OFF) {
         return;
     }
+    if (ui->screen == UI_NOTICE) {
+        gfx_text(g, F_LARGE, GFX_W / 2, 112, GFX_CENTER, C_FG, ui->notice);
+        gfx_text(g, F_TEXT, GFX_W / 2, 160, GFX_CENTER, C_MUTED, "Einschalten mit START");
+        return;
+    }
     switch (snap->state) {
     case TC_DELAY:
         draw_delay(ui, g, snap, now_us);
@@ -1319,6 +1356,7 @@ void ui_render(ui_t *ui, const timer_core_t *snap, int64_t now_us, gfx_t *g)
             draw_confirm(ui, g);
             break;
         case UI_OFF:
+        case UI_NOTICE:
             break;
         }
         break;

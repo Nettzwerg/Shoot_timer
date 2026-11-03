@@ -28,6 +28,8 @@
 #include "history.h"
 #include "history_flash.h"
 #include "nvs_flash.h"
+#include "power.h"
+#include "sleep.h"
 #include "settings.h"
 #include "shot_string.h"
 #include "timer_core.h"
@@ -42,6 +44,8 @@
 #define UI_FRAME_MS     40      // Bildwechsel bei laufender Anzeige
 #define UI_IDLE_MS      500
 #define UI_TICK_US      100000
+#define POWER_CHECK_US  1000000 // Akku und Inaktivität einmal pro Sekunde prüfen
+#define NOTICE_MS       1500    // Hinweis vor dem Tiefschlaf so lange zeigen
 
 typedef enum { EV_KEY, EV_SHOT, EV_LEVEL, EV_CMD } app_ev_type_t;
 
@@ -78,7 +82,9 @@ static ui_t s_ui;
 static gfx_t s_gfx;                         // nur im UI-Task benutzt
 static TaskHandle_t s_ui_task;
 static volatile bool s_listen_raw;          // Rohdetektionen an die UI („Umgebung lernen“)
-static volatile int8_t s_power_req = -1;    // Anzeige ein/aus, wird im UI-Task ausgeführt
+static power_t s_pwr;
+static volatile int16_t s_backlight_req = -1;   // neue Helligkeit in %, wird im UI-Task gesetzt
+static volatile bool s_sleep_req;               // Hinweis zeigen, dann Tiefschlaf (im UI-Task)
 
 static uint32_t rand32(void)
 {
@@ -245,8 +251,53 @@ static void settings_changed(void)
 {
     settings_sanitize(&s_set);
     config_save(&s_set);
-    display_backlight(s_set.brightness);
+    s_backlight_req = s_set.brightness;
     print_settings();
+}
+
+// ---------- Energie (läuft im Timer-Task, s_lock ist gehalten) ----------
+
+static uint8_t dim_level(void)
+{
+    uint8_t d = s_set.brightness / 5;
+    return d < 10 ? 10 : d;
+}
+
+static void request_sleep(const char *notice)
+{
+    // Ein laufender String wird vorher regulär beendet und gespeichert
+    if (s_tc.state != TC_READY) {
+        apply(tc_start_key(&s_tc, &s_set, esp_timer_get_time()));
+        if (s_tc.state != TC_READY) {
+            apply(tc_start_key(&s_tc, &s_set, esp_timer_get_time()));   // Pause/Verzögerung abbrechen
+        }
+    }
+    ui_notice(&s_ui, notice);
+    s_sleep_req = true;
+    printf("# Tiefschlaf: %s\n", notice);
+}
+
+static void power_check(int64_t now)
+{
+    float v = env_battery_v();
+    bool charging = gpio_get_level(PIN_CHG_CHRG) == 0;
+    uint32_t act = pwr_battery(&s_pwr, v, now);
+    ui_battery(&s_ui, s_pwr.v, pwr_percent(s_pwr.v), s_pwr.state, charging);
+    bool busy = s_tc.state != TC_READY || ui_animating(&s_ui, &s_tc) || s_ui.screen == UI_NOTICE;
+    act |= pwr_tick(&s_pwr, now, busy, s_set.auto_off_min);
+
+    if (act & PWR_ACT_DIM) {
+        s_backlight_req = dim_level();
+    }
+    if (act & PWR_ACT_LOW_WARN) {
+        ui_message(&s_ui, "Akku schwach", now);
+        printf("# Akku schwach: %.2f V\n", (double)s_pwr.v);
+    }
+    if (act & PWR_ACT_SHUTDOWN) {
+        request_sleep("Akku leer");
+    } else if (act & PWR_ACT_OFF) {
+        request_sleep("Automatisch aus");
+    }
 }
 
 // ---------- Rückrufe der UI (laufen im Timer-Task, s_lock ist gehalten) ----------
@@ -263,8 +314,9 @@ static void ui_cb_settings(void *ctx)
 
 static void ui_cb_power(void *ctx, bool on)
 {
-    s_power_req = on;
-    printf("# Anzeige %s\n", on ? "ein" : "aus");
+    if (!on) {
+        request_sleep("Timer aus");    // START 2 s gehalten
+    }
 }
 
 static void ui_cb_beep_test(void *ctx)
@@ -407,22 +459,31 @@ static void handle_cmd(char *line)
 static void timer_task(void *arg)
 {
     app_ev_t e;
+    int64_t next_power = esp_timer_get_time() + POWER_CHECK_US;
     while (true) {
-        TickType_t wait = portMAX_DELAY;
         int64_t deadline = tc_next_deadline(&s_tc);
-        if (deadline != INT64_MAX) {
-            int64_t d = deadline - esp_timer_get_time();
-            wait = d <= 0 ? 0 : pdMS_TO_TICKS((d + 999) / 1000);
+        if (next_power < deadline) {
+            deadline = next_power;
         }
+        int64_t d = deadline - esp_timer_get_time();
+        TickType_t wait = d <= 0 ? 0 : pdMS_TO_TICKS((d + 999) / 1000);
         bool got = xQueueReceive(s_queue, &e, wait) == pdTRUE;
         xSemaphoreTake(s_lock, portMAX_DELAY);
         int64_t now = esp_timer_get_time();
         if (got) {
             switch (e.type) {
             case EV_KEY:
-                ui_key(&s_ui, &e.key, &s_tc, now);
+                // Erster Tastendruck bei gedimmter Anzeige weckt nur die Anzeige
+                if (pwr_activity(&s_pwr, now) & PWR_ACT_UNDIM) {
+                    s_backlight_req = s_set.brightness;
+                } else if (!s_sleep_req) {
+                    ui_key(&s_ui, &e.key, &s_tc, now);
+                }
                 break;
             case EV_SHOT:
+                if (pwr_activity(&s_pwr, now) & PWR_ACT_UNDIM) {
+                    s_backlight_req = s_set.brightness;
+                }
                 if (s_listen_raw) {
                     ui_raw_shot(&s_ui, e.shot.db, now);
                 } else {
@@ -438,6 +499,10 @@ static void timer_task(void *arg)
             }
         }
         apply(tc_tick(&s_tc, esp_timer_get_time()));
+        if (now >= next_power) {
+            power_check(now);
+            next_power = now + POWER_CHECK_US;
+        }
         xSemaphoreGive(s_lock);
         xTaskNotifyGive(s_ui_task);
     }
@@ -467,9 +532,9 @@ static void ui_task(void *arg)
     bool animating = false;
     while (true) {
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(animating ? UI_FRAME_MS : UI_IDLE_MS));
-        if (s_power_req >= 0) {
-            display_power(s_power_req);
-            s_power_req = -1;
+        if (s_backlight_req >= 0) {
+            display_backlight((uint8_t)s_backlight_req);
+            s_backlight_req = -1;
         }
         xSemaphoreTake(s_lock, portMAX_DELAY);
         int64_t now = esp_timer_get_time();
@@ -479,13 +544,20 @@ static void ui_task(void *arg)
         }
         ui_render(&s_ui, &s_tc, now, &s_gfx);
         animating = ui_animating(&s_ui, &s_tc);
+        bool sleep = s_sleep_req;
         xSemaphoreGive(s_lock);
         display_draw(&s_gfx);   // dauert ca. 30 ms, läuft außerhalb der Sperre
+        if (sleep) {
+            display_backlight(s_set.brightness);
+            vTaskDelay(pdMS_TO_TICKS(NOTICE_MS));
+            sleep_enter();      // kehrt nicht zurück; START weckt (Neustart)
+        }
     }
 }
 
 void app_main(void)
 {
+    bool woke_by_key = sleep_after_boot();
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         nvs_flash_erase();
@@ -496,6 +568,13 @@ void app_main(void)
     gpio_config_t io = { .pin_bit_mask = 1ULL << PIN_ANALOG_EN, .mode = GPIO_MODE_OUTPUT };
     gpio_config(&io);
     gpio_set_level(PIN_ANALOG_EN, 0);   // Analogteil an
+    gpio_config_t chg = {
+        .pin_bit_mask = (1ULL << PIN_CHG_CHRG) | (1ULL << PIN_CHG_STDBY),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+    };
+    gpio_config(&chg);
+    pwr_init(&s_pwr, esp_timer_get_time());
 
     beeper_init();
     beeper_power(true);
@@ -530,7 +609,7 @@ void app_main(void)
     display_backlight(s_set.brightness);
 
     ESP_ERROR_CHECK(uart_driver_install(CONSOLE_UART, 256, 0, 0, NULL, 0));
-    printf("# Shot-Timer Firmware %s\n", UI_FW_VERSION);
+    printf("# Shot-Timer Firmware %s%s\n", UI_FW_VERSION, woke_by_key ? " (aus dem Tiefschlaf geweckt)" : "");
     print_help();
     print_settings();
     printf("# Historie: %u Strings, naechste Nummer %lu\n", s_hist.count, (unsigned long)hist_next_seq(&s_hist));

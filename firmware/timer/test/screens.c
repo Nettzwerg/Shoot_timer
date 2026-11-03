@@ -47,6 +47,7 @@ int main(int argc, char **argv)
     set.par_ms[0] = 2500;
     tc_init(&tc, fx_rand, 11);
     ui_init(&ui, &set, fx_history_empty(), &FX_ENV);
+    ui_battery(&ui, 3.92f, pwr_percent(3.92f), BATT_OK, false);
 
     save("01_bereit", &ui, &tc, 0);
 
@@ -181,5 +182,13 @@ int main(int argc, char **argv)
         fx_press(&ui, &tc, BTN_DOWN);
     }
     save("18_presets", &ui, &tc, US(3000));
+    fx_key(&ui, &tc, BTN_BACK, PRESS_LONG, 0);
+
+    // Akku schwach, dann leer
+    ui_battery(&ui, 3.38f, pwr_percent(3.38f), BATT_LOW, false);
+    ui_message(&ui, "Akku schwach", US(4000));
+    save("19_akku_schwach", &ui, &tc, US(4000.5));
+    ui_notice(&ui, "Akku leer");
+    save("20_akku_leer", &ui, &tc, US(5000));
     return 0;
 }

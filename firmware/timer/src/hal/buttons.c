@@ -23,6 +23,7 @@ typedef struct {
     unsigned held_ms;
     unsigned repeats;
     bool long_sent;
+    bool suppress;          // beim Start schon gedrückt: bis zum Loslassen ignorieren
 } btn_state_t;
 
 static bool raw_pressed(btn_key_t k)
@@ -52,6 +53,9 @@ static void on_pressed(btn_key_t k, btn_state_t *st)
 
 static void on_held(btn_key_t k, btn_state_t *st)
 {
+    if (st->suppress) {
+        return;
+    }
     st->held_ms += POLL_MS;
     unsigned long_ms = k == BTN_START ? LONG_START_MS : k == BTN_BACK ? LONG_BACK_MS : 0;
     if (long_ms && !st->long_sent && st->held_ms >= long_ms) {
@@ -66,6 +70,10 @@ static void on_held(btn_key_t k, btn_state_t *st)
 
 static void on_released(btn_key_t k, btn_state_t *st)
 {
+    if (st->suppress) {
+        st->suppress = false;
+        return;
+    }
     if (k != BTN_UP && k != BTN_DOWN && !st->long_sent) {
         emit(k, PRESS_SHORT, 0);
     }
@@ -74,6 +82,12 @@ static void on_released(btn_key_t k, btn_state_t *st)
 static void buttons_task(void *arg)
 {
     btn_state_t st[BTN_COUNT] = { 0 };
+    for (int k = 0; k < BTN_COUNT; k++) {
+        if (raw_pressed(k)) {
+            st[k].stable = true;        // als gedrückt übernehmen, ohne Ereignis
+            st[k].suppress = true;
+        }
+    }
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(POLL_MS));
         for (int k = 0; k < BTN_COUNT; k++) {
