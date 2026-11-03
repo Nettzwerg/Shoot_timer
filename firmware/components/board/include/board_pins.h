@@ -15,6 +15,14 @@
 
 #define PIN_BOOT_BTN    0   // Taste BOOT des DevKits: Markierung (kurz) / Timer-Durchgang (lang)
 
+// Display ST7789 (SPI2)
+#define PIN_TFT_BL      7   // Hintergrundbeleuchtung, PWM
+#define PIN_TFT_RST     8
+#define PIN_TFT_DC      9
+#define PIN_TFT_CS      10
+#define PIN_TFT_MOSI    11
+#define PIN_TFT_SCK     12
+
 // Bedientasten (gegen GND, interne Pull-ups)
 #define PIN_KEY_START   14  // RTC-GPIO, weckt aus dem Deep-Sleep
 #define PIN_KEY_UP      15

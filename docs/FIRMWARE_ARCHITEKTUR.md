@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Dokument** | Architektur der Timer-Firmware (Gerätesoftware) |
-| **Version** | 0.3 (Entwurf) – M1 und M2 umgesetzt |
+| **Version** | 0.4 (Entwurf) – M1 bis M3 umgesetzt |
 | **Datum** | 2026-10-26 |
 | **Bezug** | [ANFORDERUNGEN.md](ANFORDERUNGEN.md) v0.2, [HARDWARE_KONZEPT.md](HARDWARE_KONZEPT.md) v0.2, Mess-Firmware [`firmware/mess`](../firmware/mess) |
 | **UI-Prototyp** | [`docs/ui-prototyp.html`](ui-prototyp.html) – klickbarer Simulator von Display und Tasten (online: https://claude.ai/artifact/Wt1kxmGZ3CRdpYLcE5ey93) |
@@ -315,4 +315,5 @@ Die Host-Tests sollen später in GitHub Actions laufen. Dort wird auch die Firmw
 |---|---|
 | M1 Kern mit Host-Tests | **erledigt**: `firmware/timer/src/core` (`settings`, `shot_string`, `timer_core`), Tests in `firmware/timer/test` (`make -C firmware/timer/test`), laufen in GitHub Actions |
 | M2 Gemeinsame Komponenten, Projektgerüst | **erledigt**: `firmware/components` (board, envelope, beeper), `firmware/timer` baut und läuft mit START-Taste, Schusserkennung und Beep; Anzeige und Einstellungen vorerst über die serielle Konsole ([Anleitung](../firmware/timer/README.md)) |
-| M3–M8 | offen |
+| M3 Display, Schriften, Bildschirme, Menü | **erledigt**: `src/ui` (gfx mit Streifen-Rasterung, alle Bildschirme und Menüs nach Prototyp, plattformunabhängig mit Host-Tests und [Screenshots](ui-screens)), `src/hal/display.c` (ST7789 über esp_lcd, SPI-DMA, PWM-Beleuchtung), UI-Task; Historie vorerst im RAM |
+| M4–M8 | offen (M4: Test auf dem Steckbrett mit Display) |
