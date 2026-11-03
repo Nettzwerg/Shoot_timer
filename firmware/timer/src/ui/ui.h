@@ -9,13 +9,14 @@
 
 #include "buttons.h"
 #include "gfx.h"
+#include "history.h"
+#include "presets.h"
 #include "settings.h"
 #include "shot_string.h"
 #include "timer_core.h"
 
-#define UI_HIST_MAX     20      // Strings im RAM (dauerhafte Historie folgt mit M5)
 #define UI_MENU_DEPTH   4
-#define UI_FW_VERSION   "0.3.0"
+#define UI_FW_VERSION   "0.5.0"
 
 typedef struct {
     void (*start_key)(void *ctx);                   // START an den Timer weitergeben
@@ -23,6 +24,7 @@ typedef struct {
     void (*power)(void *ctx, bool on);              // Anzeige aus/an (M6: Deep-Sleep)
     void (*beep_test)(void *ctx);
     void (*listen)(void *ctx, bool levels, bool raw_shots);  // Pegelmeldungen / Rohdetektionen
+    void (*preset_save)(void *ctx, uint8_t slot, const settings_t *preset);
     void *ctx;
 } ui_env_t;
 
@@ -40,6 +42,8 @@ typedef enum {
     UI_OFF,
 } ui_screen_t;
 
+typedef enum { CONFIRM_FACTORY = 0, CONFIRM_CLEAR_HISTORY } ui_confirm_t;
+
 typedef struct {
     ui_env_t env;
     settings_t *set;
@@ -55,13 +59,19 @@ typedef struct {
         int32_t value;
     } edit;
 
-    // Historie, neuester String an Index 0
-    shot_string_t hist[UI_HIST_MAX];
-    uint8_t hist_n;
-    uint8_t cur;            // String im Hauptbildschirm
+    history_t *hist;        // dauerhafte Historie, neuester String an Index 0
+    shot_string_t cur;      // String im Hauptbildschirm
+    bool has_cur;
     uint8_t shot_sel;       // gewählter Schuss
-    uint8_t hist_sel;
+    uint16_t hist_sel;
+    shot_string_t hview;    // String in der Historienansicht
     uint8_t hview_sel;      // Schuss in der Historienansicht
+    ui_confirm_t confirm;
+
+    settings_t presets[PRESET_SLOTS];
+    bool preset_used[PRESET_SLOTS];
+    char preset_label[PRESET_SLOTS][32];    // Menütexte "P1 Par 2.50 s"
+    char save_label[PRESET_SLOTS][40];      // Menütexte "Platz 1: …"
 
     struct {
         uint8_t v[SCORE_FIELDS];
@@ -87,12 +97,14 @@ typedef struct {
     float battery_v;        // 0 = unbekannt
 } ui_t;
 
-void ui_init(ui_t *ui, settings_t *set, const ui_env_t *env);
+// hist muss geöffnet sein; der neueste gespeicherte String erscheint im Hauptbildschirm.
+void ui_init(ui_t *ui, settings_t *set, history_t *hist, const ui_env_t *env);
+void ui_set_preset(ui_t *ui, uint8_t slot, const settings_t *preset);   // beim Start aus dem Speicher
 
 // Tastenereignis. snap: aktueller Zustand des Timers (für Sperren während des Laufs).
 void ui_key(ui_t *ui, const btn_event_t *ev, const timer_core_t *snap, int64_t now_us);
 
-void ui_string_done(ui_t *ui, const shot_string_t *s);   // fertigen String übernehmen
+void ui_string_done(ui_t *ui, const shot_string_t *s);   // fertigen String speichern und anzeigen
 void ui_level(ui_t *ui, float db, bool clipped);         // Pegelmeldung (ca. 10 Hz)
 void ui_raw_shot(ui_t *ui, float db, int64_t now_us);    // Rohdetektion für „Umgebung lernen“
 void ui_tick(ui_t *ui, int64_t now_us);                  // Zeitabläufe (Lernen, Pegelabfall)
