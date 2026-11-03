@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Dokument** | Architektur der Timer-Firmware (Gerätesoftware) |
-| **Version** | 0.4 (Entwurf) – M1 bis M3 umgesetzt |
+| **Version** | 0.5 (Entwurf) – M1, M2, M3 und M5 umgesetzt |
 | **Datum** | 2026-10-26 |
 | **Bezug** | [ANFORDERUNGEN.md](ANFORDERUNGEN.md) v0.2, [HARDWARE_KONZEPT.md](HARDWARE_KONZEPT.md) v0.2, Mess-Firmware [`firmware/mess`](../firmware/mess) |
 | **UI-Prototyp** | [`docs/ui-prototyp.html`](ui-prototyp.html) – klickbarer Simulator von Display und Tasten (online: https://claude.ai/artifact/Wt1kxmGZ3CRdpYLcE5ey93) |
@@ -199,31 +199,34 @@ Der klickbare Prototyp [`docs/ui-prototyp.html`](ui-prototyp.html) setzt genau d
 
 ### 9.1 Einstellungen und Presets (NVS)
 
-- Eine `settings_t`-Struktur mit **Versionsnummer**, als Blob im NVS-Namespace `timer`.
-- Beim Laden: Version prüfen; unbekannte oder ältere Versionen werden migriert oder auf Werkseinstellungen gesetzt; jeder Wert wird auf seine Grenzen begrenzt.
-- Presets: 10 Blobs `preset0`–`preset9`.
-- Geschrieben wird erst beim Verlassen des Menüs (Flash schonen).
+- Eine `settings_t`-Struktur mit **Versionsnummer**, als Blob im NVS-Namespace `timer`, Schlüssel `settings`.
+- Beim Laden: Version und Größe prüfen; passt etwas nicht, gelten die Werkseinstellungen; jeder Wert wird auf seine Grenzen begrenzt.
+- Geschrieben wird beim Übernehmen eines Werts im Menü (wenige Byte, NVS verteilt die Schreibvorgänge selbst).
+- **Presets** (F-069): 10 Plätze als Blobs `preset0`–`preset9` (vollständige `settings_t`). Beim Laden übernimmt `preset_apply()` nur die Drill-Felder (Modus, Startverzögerung, Par-Zeiten, Modus-Optionen). Empfindlichkeit, Beep und Helligkeit bleiben, wie sie sind. Dazu kommen 4 eingebaute Drills (Bill Drill, El Presidente, Doublette, Ziehen trocken).
 
 ### 9.2 Strings (Historie)
 
-- Eine Datei `strings.bin` auf der Speicherpartition, **Ring aus 200 Datensätzen fester Länge** (F-050: ≥ 100).
-- Datensatz (ca. 640 Byte):
+Umgesetzt in `src/core/history.c` (plattformunabhängig, Host-Tests) und `src/svc/history_flash.c` (Flash-Zugriff).
+
+- Eigene Partition `history`, **Ring aus 200 Datensätzen** (F-050: ≥ 100), **ein 4-KB-Flash-Sektor je Datensatz**. Schreiben = Sektor löschen + Datensatz schreiben. Ein Stromausfall trifft deshalb höchstens den gerade geschriebenen Datensatz, nie seine Nachbarn.
+- Datensatz (1024 Byte, davon ca. 560 belegt), feste Byte-Reihenfolge (little endian), unabhängig vom Speicherlayout der C-Struktur:
 
 | Feld | Typ | Inhalt |
 |---|---|---|
-| `magic`, `version` | u16, u16 | Kennung, Formatversion |
+| `magic`, `version` | u16, u16 | Kennung `0x4853` („SH“), Formatversion 1 |
 | `seq` | u32 | fortlaufende Nummer (größte = neueste) |
-| `timestamp` | u32 | Unixzeit, falls bekannt (WLAN/App), sonst 0 |
-| `mode`, `flags` | u8, u8 | Modus; Bits: Par aktiv, Wertung vorhanden, abgebrochen … |
-| `delay_ms`, `par_ms[10]` | u32 | verwendete Verzögerung, Par-Zeiten |
-| `n_shots` | u8 | Anzahl Schüsse (≤ 99) |
-| `shot_t[99]` | u32 | Zeiten in 0,1 ms ab Beep |
-| `shot_db[99]` | i8 | Spitzenpegel in dBFS (für die Auswertung von Fehlerkennungen) |
-| `score` | 5 × u8 + u8 | A, C, D, Miss, NS, Power Factor |
-| `crc32` | u32 | über den gesamten Datensatz |
+| `mode`, `n`, `par_count` | u8 | Modus, Anzahl Schüsse (≤ 99), Anzahl Par-Zeiten |
+| `scored`, `power_factor`, `score[5]` | u8 | Wertung: A, C, D, Miss, No-Shoot, Minor/Major |
+| `delay_ms` | u32 | tatsächliche Startverzögerung |
+| `par_ms[10]` | u32 | Par-Zeiten |
+| `shots[n]` | u32 + i8 | Zeit in µs ab Beep, Spitzenpegel in dBFS |
+| `crc32` | u32 | an Byte 1020, über Byte 0–1019 |
 
-- Beim Start werden alle Datensätze gelesen. Gültig ist ein Datensatz mit korrektem CRC; der mit dem höchsten `seq` ist der neueste, der nächste Schreibplatz folgt darauf. Ein Stromausfall beim Schreiben macht höchstens diesen einen Datensatz ungültig.
-- **Letzten Schuss löschen** (F-042) schreibt den Datensatz mit neuem CRC an dieselbe Stelle.
+- Beim Start werden alle 200 Sektoren gelesen (ca. 20 ms). Gültig ist ein Datensatz mit Kennung, Version, CRC und plausiblen Werten. Der Index (Sektoren nach `seq` sortiert) liegt im RAM (ca. 1,2 KB).
+- Neue Strings kommen in den Sektor nach dem neuesten; ist der Ring voll, ist das der älteste. Die Nummerierung setzt nach einem Neustart fort (`hist_next_seq()` → `tc_init()`).
+- **Wertung** und **Letzten Schuss löschen** (F-042) schreiben den Datensatz an dieselbe Stelle neu.
+- **Historie löschen** (System-Menü, mit Rückfrage) löscht die ganze Partition (800 KB, einige Sekunden).
+- Schreibzugriffe laufen im Timer-Task, nur wenn kein Lauf aktiv ist (String fertig, Menü). Der ADC-Puffer (ca. 200 ms) überbrückt die Dauer eines Sektorlöschens (ca. 45 ms).
 
 ### 9.3 Partitionstabelle (8 MB)
 
@@ -232,7 +235,8 @@ Der klickbare Prototyp [`docs/ui-prototyp.html`](ui-prototyp.html) setzt genau d
 | nvs | 24 KB | Einstellungen, Presets |
 | otadata | 8 KB | für OTA-Updates (F-083) |
 | app0 / app1 | je 2 MB | Firmware (OTA im Wechsel) |
-| storage | ca. 3,9 MB | Historie, optional Messmitschnitte |
+| history | 800 KB | Historie, 200 × 4 KB |
+| storage | ca. 3,1 MB | frei für später (Export, Messmitschnitte) |
 
 ---
 
@@ -316,4 +320,5 @@ Die Host-Tests sollen später in GitHub Actions laufen. Dort wird auch die Firmw
 | M1 Kern mit Host-Tests | **erledigt**: `firmware/timer/src/core` (`settings`, `shot_string`, `timer_core`), Tests in `firmware/timer/test` (`make -C firmware/timer/test`), laufen in GitHub Actions |
 | M2 Gemeinsame Komponenten, Projektgerüst | **erledigt**: `firmware/components` (board, envelope, beeper), `firmware/timer` baut und läuft mit START-Taste, Schusserkennung und Beep; Anzeige und Einstellungen vorerst über die serielle Konsole ([Anleitung](../firmware/timer/README.md)) |
 | M3 Display, Schriften, Bildschirme, Menü | **erledigt**: `src/ui` (gfx mit Streifen-Rasterung, alle Bildschirme und Menüs nach Prototyp, plattformunabhängig mit Host-Tests und [Screenshots](ui-screens)), `src/hal/display.c` (ST7789 über esp_lcd, SPI-DMA, PWM-Beleuchtung), UI-Task; Historie vorerst im RAM |
-| M4–M8 | offen (M4: Test auf dem Steckbrett mit Display) |
+| M5 Historie, Presets, Einstellungen | **erledigt**: `core/history` (CRC-Ring über 200 Flash-Sektoren, Tests mit Stromausfall und beschädigten Blöcken), `core/presets` + 10 Plätze im NVS, UI liest die Historie direkt aus dem Speicher, „Historie löschen“ |
+| M4, M6–M8 | offen (M4: Test auf dem Steckbrett mit Display) |

@@ -3,6 +3,7 @@
 
 #include <string.h>
 
+#include "history.h"
 #include "settings.h"
 #include "shot_string.h"
 #include "timer_core.h"
@@ -23,7 +24,26 @@ static void fx_power(void *c, bool on) { (void)c; if (on) fx_calls.power_on++; e
 static void fx_beep(void *c) { (void)c; fx_calls.beeps++; }
 static void fx_listen(void *c, bool lv, bool raw) { (void)c; fx_calls.listen_levels = lv; fx_calls.listen_raw = raw; }
 
-static const ui_env_t FX_ENV = { fx_start, fx_changed, fx_power, fx_beep, fx_listen, NULL };
+static int fx_preset_saves;
+static void fx_preset_save(void *c, uint8_t slot, const settings_t *p) { (void)c; (void)slot; (void)p; fx_preset_saves++; }
+
+static const ui_env_t FX_ENV = { fx_start, fx_changed, fx_power, fx_beep, fx_listen, fx_preset_save, NULL };
+
+// Historie im RAM (simulierter Flash)
+static uint8_t fx_mem[HIST_SLOTS][HIST_REC_SIZE];
+static bool fx_read(void *c, uint16_t slot, uint8_t *buf) { (void)c; memcpy(buf, fx_mem[slot], HIST_REC_SIZE); return true; }
+static bool fx_write(void *c, uint16_t slot, const uint8_t *buf) { (void)c; memcpy(fx_mem[slot], buf, HIST_REC_SIZE); return true; }
+static bool fx_erase(void *c) { (void)c; memset(fx_mem, 0xff, sizeof(fx_mem)); return true; }
+static const hist_io_t FX_IO = { fx_read, fx_write, fx_erase, NULL };
+static history_t fx_hist;
+
+// Leere Historie anlegen und öffnen
+static history_t *fx_history_empty(void)
+{
+    fx_erase(NULL);
+    hist_open(&fx_hist, &FX_IO);
+    return &fx_hist;
+}
 
 static void fx_key(ui_t *ui, const timer_core_t *tc, btn_key_t k, btn_press_t p, int64_t now)
 {

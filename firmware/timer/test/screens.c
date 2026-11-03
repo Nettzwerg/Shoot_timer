@@ -46,7 +46,7 @@ int main(int argc, char **argv)
     set.mode = MODE_PAR;
     set.par_ms[0] = 2500;
     tc_init(&tc, fx_rand, 11);
-    ui_init(&ui, &set, &FX_ENV);
+    ui_init(&ui, &set, fx_history_empty(), &FX_ENV);
 
     save("01_bereit", &ui, &tc, 0);
 
@@ -162,5 +162,24 @@ int main(int argc, char **argv)
     save("16_wertung_ergebnis", &ui, &tc, 0);
     fx_key(&ui, &tc, BTN_OK, PRESS_SHORT, US(2000));
     save("17_ergebnis_mit_hf_und_meldung", &ui, &tc, US(2000.5));
+
+    // Presets: eigenes Preset auf Platz 1 und 2, Menü öffnen
+    settings_t p1 = set, p2 = set;
+    p1.mode = MODE_PAR;
+    p1.par_count = 1;
+    p1.par_ms[0] = 1500;
+    p2.mode = MODE_COUNTDOWN;
+    p2.countdown_s = 45;
+    ui_set_preset(&ui, 0, &p1);
+    ui_set_preset(&ui, 1, &p2);
+    fx_press(&ui, &tc, BTN_OK);
+    for (int i = 0; i < 8; i++) {
+        fx_press(&ui, &tc, BTN_DOWN);
+    }
+    fx_press(&ui, &tc, BTN_OK);
+    for (int i = 0; i < 4; i++) {
+        fx_press(&ui, &tc, BTN_DOWN);
+    }
+    save("18_presets", &ui, &tc, US(3000));
     return 0;
 }

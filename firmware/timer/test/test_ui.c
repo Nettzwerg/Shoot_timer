@@ -36,7 +36,8 @@ static void setup(void)
     memset(&fx_calls, 0, sizeof(fx_calls));
     settings_defaults(&set);
     tc_init(&tc, fx_rand, 1);
-    ui_init(&ui, &set, &FX_ENV);
+    fx_preset_saves = 0;
+    ui_init(&ui, &set, fx_history_empty(), &FX_ENV);
 }
 
 static void press_n(btn_key_t k, int n)
@@ -163,7 +164,7 @@ static void test_browse_and_delete(void)
     setup();
     const double t[] = { 1.0, 1.3, 1.5 };
     add_string(t, 3);
-    CHECK_EQ(ui.hist_n, 1);
+    CHECK_EQ(fx_hist.count, 1);
     CHECK_EQ(ui.shot_sel, 2);
     fx_press(&ui, &tc, BTN_DOWN);           // umlaufend
     CHECK_EQ(ui.shot_sel, 0);
@@ -175,20 +176,22 @@ static void test_browse_and_delete(void)
     fx_press(&ui, &tc, BTN_OK);
     fx_press(&ui, &tc, BTN_DOWN);           // Letzten Schuss löschen
     fx_press(&ui, &tc, BTN_OK);
-    CHECK_EQ(ui.hist[0].n, 2);
+    CHECK_EQ(ui.cur.n, 2);
     CHECK_EQ(ui.shot_sel, 1);
+    shot_string_t stored;
+    CHECK(hist_get(&fx_hist, 0, &stored));
+    CHECK_EQ(stored.n, 2);                  // auch im Speicher geändert
 }
 
 static void test_history(void)
 {
     setup();
     const double t[] = { 1.0, 1.3 };
-    for (int i = 0; i < UI_HIST_MAX + 3; i++) {
+    for (int i = 0; i < 25; i++) {
         add_string(t, 2);
     }
-    CHECK_EQ(ui.hist_n, UI_HIST_MAX);
-    CHECK_EQ(ui.hist[0].seq, UI_HIST_MAX + 3);          // neuester zuerst
-    CHECK_EQ(ui.hist[UI_HIST_MAX - 1].seq, 4);          // älteste verdrängt
+    CHECK_EQ(fx_hist.count, 25);
+    CHECK_EQ(ui.cur.seq, 25);
 
     fx_press(&ui, &tc, BTN_OK);
     press_n(BTN_DOWN, 7);
@@ -197,12 +200,92 @@ static void test_history(void)
     press_n(BTN_DOWN, 2);
     fx_press(&ui, &tc, BTN_OK);
     CHECK_EQ(ui.screen, UI_HVIEW);
+    CHECK_EQ(ui.hview.seq, 23);
     fx_press(&ui, &tc, BTN_OK);                         // übernehmen
     CHECK_EQ(ui.screen, UI_MAIN);
-    CHECK_EQ(ui.cur, 2);
+    CHECK_EQ(ui.cur.seq, 23);
     // neuer String springt wieder auf den neuesten
     add_string(t, 2);
-    CHECK_EQ(ui.cur, 0);
+    CHECK_EQ(ui.cur.seq, 26);
+}
+
+static void test_restart_keeps_history(void)
+{
+    setup();
+    const double t[] = { 1.1, 1.4, 1.6 };
+    add_string(t, 3);
+    add_string(t, 2);
+    hist_open(&fx_hist, &FX_IO);            // Neustart: Historie neu einlesen
+    ui_init(&ui, &set, &fx_hist, &FX_ENV);
+    CHECK(ui.has_cur);
+    CHECK_EQ(ui.cur.seq, 2);
+    CHECK_EQ(ui.cur.n, 2);
+    CHECK_EQ(ui.shot_sel, 1);
+    CHECK_EQ(hist_next_seq(&fx_hist), 3);
+}
+
+static void test_clear_history(void)
+{
+    setup();
+    const double t[] = { 1.0 };
+    add_string(t, 1);
+    fx_press(&ui, &tc, BTN_OK);
+    press_n(BTN_DOWN, 9);                   // System
+    fx_press(&ui, &tc, BTN_OK);
+    press_n(BTN_DOWN, 5);                   // Historie löschen
+    fx_press(&ui, &tc, BTN_OK);
+    CHECK_EQ(ui.screen, UI_CONFIRM);
+    fx_press(&ui, &tc, BTN_BACK);           // abbrechen
+    CHECK_EQ(fx_hist.count, 1);
+    fx_press(&ui, &tc, BTN_OK);
+    fx_press(&ui, &tc, BTN_OK);
+    CHECK_EQ(fx_hist.count, 0);
+    CHECK(!ui.has_cur);
+    CHECK_EQ(ui.screen, UI_MAIN);
+    ui_render(&ui, &tc, 0, &g);             // leerer Hauptbildschirm
+    CHECK(!g.overflow);
+}
+
+static void test_presets(void)
+{
+    setup();
+    set.mode = MODE_PAR;
+    set.par_ms[0] = 3330;
+    set.sensitivity = 7;
+    fx_press(&ui, &tc, BTN_OK);
+    press_n(BTN_DOWN, 8);                   // Presets
+    fx_press(&ui, &tc, BTN_OK);
+    press_n(BTN_DOWN, 4);                   // nach 4 eingebauten: "Aktuelle speichern"
+    fx_press(&ui, &tc, BTN_OK);
+    press_n(BTN_DOWN, 2);                   // Platz 3
+    fx_press(&ui, &tc, BTN_OK);
+    CHECK(ui.preset_used[2]);
+    CHECK_EQ(fx_preset_saves, 1);
+    CHECK(strcmp(ui.preset_label[2], "P3 Par 3.33 s") == 0);
+
+    // anderen Drill einstellen, dann eigenes Preset laden
+    set.mode = MODE_COUNTDOWN;
+    set.par_ms[0] = 1000;
+    set.sensitivity = 2;
+    fx_key(&ui, &tc, BTN_BACK, PRESS_LONG, 0);
+    fx_press(&ui, &tc, BTN_OK);
+    press_n(BTN_DOWN, 8);
+    fx_press(&ui, &tc, BTN_OK);
+    press_n(BTN_DOWN, 4);                   // P3 steht nach den eingebauten
+    fx_press(&ui, &tc, BTN_OK);
+    CHECK_EQ(set.mode, MODE_PAR);
+    CHECK_EQ(set.par_ms[0], 3330);
+    CHECK_EQ(set.sensitivity, 2);           // Empfindlichkeit gehört nicht zum Drill
+    CHECK_EQ(ui.screen, UI_MAIN);
+
+    // beim Start gesetztes Preset
+    settings_t p;
+    settings_defaults(&p);
+    p.mode = MODE_COUNTDOWN;
+    p.countdown_s = 45;
+    ui_set_preset(&ui, 0, &p);
+    CHECK(strcmp(ui.preset_label[0], "P1 Countdown 45 s") == 0);
+    CHECK(strcmp(ui.save_label[1], "Platz 2: leer") == 0);
 }
 
 static void test_score(void)
@@ -225,8 +308,12 @@ static void test_score(void)
     press_n(BTN_OK, 3);                     // Miss, NS, Ergebnis
     CHECK(ui.score.result);
     fx_press(&ui, &tc, BTN_OK);             // speichern
-    CHECK(ui.hist[0].scored);
-    CHECK(fabsf(ss_hit_factor(&ui.hist[0]) - 6.0f) < 1e-4f);   // 24 Punkte / 4 s
+    CHECK(ui.cur.scored);
+    CHECK(fabsf(ss_hit_factor(&ui.cur) - 6.0f) < 1e-4f);   // 24 Punkte / 4 s
+    shot_string_t stored;
+    CHECK(hist_get(&fx_hist, 0, &stored));
+    CHECK(stored.scored);                   // Wertung ist gespeichert
+    CHECK_EQ(stored.score[SCORE_A], 4);
     CHECK_EQ(ui.screen, UI_MAIN);
 }
 
@@ -297,7 +384,7 @@ static void test_power_and_factory(void)
     fx_press(&ui, &tc, BTN_OK);
     press_n(BTN_DOWN, 9);                   // System
     fx_press(&ui, &tc, BTN_OK);
-    press_n(BTN_DOWN, 5);                   // Werkseinstellungen
+    press_n(BTN_DOWN, 6);                   // Werkseinstellungen
     fx_press(&ui, &tc, BTN_OK);
     CHECK_EQ(ui.screen, UI_CONFIRM);
     fx_press(&ui, &tc, BTN_BACK);
@@ -372,6 +459,9 @@ int main(void)
     RUN(test_disabled_items);
     RUN(test_browse_and_delete);
     RUN(test_history);
+    RUN(test_restart_keeps_history);
+    RUN(test_clear_history);
+    RUN(test_presets);
     RUN(test_score);
     RUN(test_quick_sensitivity);
     RUN(test_suggest);

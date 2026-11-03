@@ -25,6 +25,8 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "history.h"
+#include "history_flash.h"
 #include "nvs_flash.h"
 #include "settings.h"
 #include "shot_string.h"
@@ -70,7 +72,8 @@ static timer_core_t s_tc;
 static settings_t s_set;
 static tc_state_t s_shown_state = TC_READY;
 
-static SemaphoreHandle_t s_lock;            // schützt s_tc, s_set und s_ui
+static SemaphoreHandle_t s_lock;            // schützt s_tc, s_set, s_ui und s_hist
+static history_t s_hist;
 static ui_t s_ui;
 static gfx_t s_gfx;                         // nur im UI-Task benutzt
 static TaskHandle_t s_ui_task;
@@ -191,7 +194,8 @@ static void print_help(void)
            "#  c <s> [warn_s]   Countdown              r <s>   Pause Wiederholung\n"
            "#  n <anzahl>       Trockentraining-Durchgaenge\n"
            "#  b <Hz> <ms> <0-2> Beep (0 leise, 2 laut)\n"
-           "#  w                Werkseinstellungen\n");
+           "#  w                Werkseinstellungen\n"
+           "#  H                die letzten 10 Strings der Historie\n");
 }
 
 // ---------- Kern-Aktionen ausführen ----------
@@ -268,6 +272,13 @@ static void ui_cb_beep_test(void *ctx)
     beep(s_set.beep_ms, false);
 }
 
+static void ui_cb_preset_save(void *ctx, uint8_t slot, const settings_t *preset)
+{
+    if (!preset_store(slot, preset)) {
+        printf("# Fehler: Preset %u nicht gespeichert\n", slot + 1);
+    }
+}
+
 static void ui_cb_listen(void *ctx, bool levels, bool raw)
 {
     env_set_level_report(levels);
@@ -295,6 +306,17 @@ static void handle_cmd(char *line)
             print_string();
         }
         return;
+    case 'H': {
+        static shot_string_t s;
+        printf("# Historie: %u Strings\n", s_hist.count);
+        for (uint16_t i = 0; i < 10 && hist_get(&s_hist, i, &s); i++) {
+            char total[8];
+            ss_format_time(total, ss_total_us(&s));
+            printf("HIST,%lu,%s,%u,%s%s\n", (unsigned long)s.seq, MODE_NAMES[s.mode], s.n, total,
+                   s.scored ? ",gewertet" : "");
+        }
+        return;
+    }
     case 'm':
         s_set.mode = (uint8_t)atoi(arg);
         break;
@@ -421,6 +443,22 @@ static void timer_task(void *arg)
     }
 }
 
+// Ersatz, falls die Partition fehlt: nichts lesen, nichts speichern
+static bool no_read(void *ctx, uint16_t slot, uint8_t *buf)
+{
+    return false;
+}
+
+static bool no_write(void *ctx, uint16_t slot, const uint8_t *buf)
+{
+    return false;
+}
+
+static bool no_erase(void *ctx)
+{
+    return false;
+}
+
 // ---------- UI-Task ----------
 
 static void ui_task(void *arg)
@@ -465,15 +503,29 @@ void app_main(void)
 
     s_queue = xQueueCreate(16, sizeof(app_ev_t));
     s_lock = xSemaphoreCreateMutex();
-    tc_init(&s_tc, rand32, 1);
+
+    hist_io_t hist_io;
+    if (!history_flash_io(&hist_io)) {
+        printf("# Fehler: Partition \"history\" fehlt, Historie wird nicht gespeichert\n");
+        hist_io = (hist_io_t) { .read = no_read, .write = no_write, .erase_all = no_erase };
+    }
+    hist_open(&s_hist, &hist_io);
+    tc_init(&s_tc, rand32, hist_next_seq(&s_hist));
     const ui_env_t env = {
         .start_key = ui_cb_start,
         .settings_changed = ui_cb_settings,
         .power = ui_cb_power,
         .beep_test = ui_cb_beep_test,
         .listen = ui_cb_listen,
+        .preset_save = ui_cb_preset_save,
     };
-    ui_init(&s_ui, &s_set, &env);
+    ui_init(&s_ui, &s_set, &s_hist, &env);
+    for (uint8_t slot = 0; slot < PRESET_SLOTS; slot++) {
+        settings_t p;
+        if (preset_load(slot, &p)) {
+            ui_set_preset(&s_ui, slot, &p);
+        }
+    }
     display_init();
     display_backlight(s_set.brightness);
 
@@ -481,6 +533,7 @@ void app_main(void)
     printf("# Shot-Timer Firmware %s\n", UI_FW_VERSION);
     print_help();
     print_settings();
+    printf("# Historie: %u Strings, naechste Nummer %lu\n", s_hist.count, (unsigned long)hist_next_seq(&s_hist));
     printf("STATE,%s\n", STATE_NAMES[s_tc.state]);
 
     xTaskCreatePinnedToCore(ui_task, "ui", 6144, NULL, 4, &s_ui_task, 0);

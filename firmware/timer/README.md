@@ -2,16 +2,17 @@
 
 Gerätesoftware des Shot-Timers. Architektur: [docs/FIRMWARE_ARCHITEKTUR.md](../../docs/FIRMWARE_ARCHITEKTUR.md).
 
-## Stand: Meilenstein M3
+## Stand: Meilenstein M5
 
 | funktioniert | folgt |
 |---|---|
-| Alle 6 Modi (Standard, Par, Spy, Trockentraining, Wiederholung, Countdown) | Historie und Presets dauerhaft im Flash (M5); bis dahin 20 Strings im RAM |
+| Alle 6 Modi (Standard, Par, Spy, Trockentraining, Wiederholung, Countdown) | Test auf dem Steckbrett mit Display (M4) |
 | Startverzögerung, Start-, Par-, Warn- und Ende-Beep | Energieverwaltung, Deep-Sleep, Akkuanzeige (M6); „Aus“ schaltet bisher nur das Display ab |
 | Schusserkennung mit Zeitstempeln in µs, Empfindlichkeit und Echo-Zeit | WLAN, Export (M8) |
 | **Display mit allen Bildschirmen und Menü** wie im [UI-Prototyp](../../docs/ui-prototyp.html) | |
 | Schnelleinstellung Empfindlichkeit mit Pegelanzeige, Mikrofon-Test, „Umgebung lernen“ | |
-| Historie (RAM), Hit-Factor-Wertung, letzten Schuss löschen, Presets | |
+| **Historie mit 200 Strings im Flash** (bleibt nach dem Ausschalten), Hit-Factor-Wertung, letzten Schuss löschen, Historie löschen | |
+| 4 eingebaute Drills und **10 eigene Presets** (Menü → Presets → Aktuelle speichern) | |
 | Einstellungen werden im NVS gespeichert; Konsole zum Testen | |
 
 ## Bildschirme
@@ -25,7 +26,7 @@ Erzeugt am PC aus genau dem Code, der auf dem Gerät läuft (`make -C firmware/t
 | ![Pause](../../docs/ui-screens/07_pause.png) | ![Menü](../../docs/ui-screens/08_menue.png) | ![Par-Zeiten](../../docs/ui-screens/09_par_zeiten.png) |
 | ![Werteditor](../../docs/ui-screens/10_werteditor.png) | ![Schnelleinstellung](../../docs/ui-screens/11_schnelleinstellung.png) | ![Umgebung lernen](../../docs/ui-screens/12_lernen.png) |
 | ![Vorschlag](../../docs/ui-screens/13_lernen_vorschlag.png) | ![Historie](../../docs/ui-screens/14_historie.png) | ![Wertung](../../docs/ui-screens/15_wertung.png) |
-| ![Wertung Ergebnis](../../docs/ui-screens/16_wertung_ergebnis.png) | ![Ergebnis mit Hit Factor](../../docs/ui-screens/17_ergebnis_mit_hf_und_meldung.png) | |
+| ![Wertung Ergebnis](../../docs/ui-screens/16_wertung_ergebnis.png) | ![Ergebnis mit Hit Factor](../../docs/ui-screens/17_ergebnis_mit_hf_und_meldung.png) | ![Presets](../../docs/ui-screens/18_presets.png) |
 
 ## Aufbau
 
@@ -42,7 +43,7 @@ Ohne eigene START-Taste wirkt die Taste **BOOT** des DevKits als START. Nicht be
 
 Wie die Mess-Firmware: VS Code mit PlatformIO, Ordner `firmware/timer` öffnen, **Upload**. Danach den **Monitor** öffnen (115200 Baud).
 
-Die beiden Firmwares teilen den Flash unterschiedlich auf. Nach dem Wechsel von der Mess- zur Timer-Firmware sind die gespeicherten Messdaten nicht mehr lesbar. Vorher auslesen (`mess_logger.py download`).
+Die beiden Firmwares teilen den Flash unterschiedlich auf. Nach dem Wechsel von der Mess- zur Timer-Firmware sind die gespeicherten Messdaten nicht mehr lesbar. Vorher auslesen (`mess_logger.py download`). Umgekehrt bleibt die Historie der Timer-Firmware nur erhalten, solange keine andere Firmware den Flash überschreibt.
 
 ## Bedienung
 
@@ -80,6 +81,7 @@ STATE,Bereit
 | `n 10` | Anzahl Durchgänge Trockentraining |
 | `b 3000 300 2` | Beep: Frequenz, Dauer, Lautstärke 0–2 |
 | `w` | Werkseinstellungen |
+| `H` | die letzten 10 Strings der Historie |
 
 Änderungen werden sofort gespeichert und gelten ab dem nächsten String.
 

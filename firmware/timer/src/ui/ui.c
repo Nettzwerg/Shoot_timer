@@ -156,14 +156,14 @@ static void field_format(uint8_t id, int32_t v, char *buf, size_t len)
 
 // ---------- Menüs ----------
 
-enum { M_MAIN, M_MODE, M_DELAY, M_PAR, M_DETECT, M_BEEP, M_MODEOPT, M_LAST, M_PRESETS, M_SYSTEM };
-enum { IT_SUB, IT_FIELD, IT_ACT, IT_MODE, IT_INFO, IT_PRESET };
-enum { A_HISTORY, A_MICTEST, A_LEARN, A_BEEPTEST, A_SCORE, A_DELLAST, A_FACTORY };
+enum { M_MAIN, M_MODE, M_DELAY, M_PAR, M_DETECT, M_BEEP, M_MODEOPT, M_LAST, M_PRESETS, M_SYSTEM, M_PRESET_SAVE };
+enum { IT_SUB, IT_FIELD, IT_ACT, IT_MODE, IT_INFO, IT_PRESET, IT_UPRESET, IT_PSAVE };
+enum { A_HISTORY, A_MICTEST, A_LEARN, A_BEEPTEST, A_SCORE, A_DELLAST, A_FACTORY, A_CLEARHIST };
 enum { I_BATTERY, I_FIRMWARE };
 
 static const char *const MENU_TITLES[] = {
     "Menü", "Modus", "Startverzögerung", "Par-Zeiten", "Erkennung", "Beep",
-    "Modus-Optionen", "Letzter String", "Presets", "System",
+    "Modus-Optionen", "Letzter String", "Presets", "System", "Preset speichern",
 };
 
 typedef struct {
@@ -173,7 +173,8 @@ typedef struct {
     bool disabled;
 } item_t;
 
-#define MENU_MAX_ITEMS 16
+#define MENU_MAX_ITEMS (N_BUILTIN_MAX + PRESET_SLOTS + 1)
+#define N_BUILTIN_MAX  4
 
 typedef struct {
     const char *name;
@@ -190,10 +191,11 @@ static const preset_t PRESETS[] = {
     { "Ziehen trocken", MODE_DRY, DELAY_RANDOM, 2000, 4000, 1200, 10 },
 };
 #define N_PRESETS (sizeof(PRESETS) / sizeof(PRESETS[0]))
+_Static_assert(N_PRESETS <= N_BUILTIN_MAX, "MENU_MAX_ITEMS zu klein");
 
 static shot_string_t *current(ui_t *ui)
 {
-    return ui->hist_n ? &ui->hist[ui->cur] : NULL;
+    return ui->has_cur ? &ui->cur : NULL;
 }
 
 static int build_menu(ui_t *ui, uint8_t id, item_t *it)
@@ -266,6 +268,17 @@ static int build_menu(ui_t *ui, uint8_t id, item_t *it)
         for (unsigned i = 0; i < N_PRESETS; i++) {
             ADD(PRESETS[i].name, IT_PRESET, i, false);
         }
+        for (int i = 0; i < PRESET_SLOTS; i++) {
+            if (ui->preset_used[i]) {
+                ADD(ui->preset_label[i], IT_UPRESET, i, false);
+            }
+        }
+        ADD("Aktuelle speichern", IT_SUB, M_PRESET_SAVE, false);
+        break;
+    case M_PRESET_SAVE:
+        for (int i = 0; i < PRESET_SLOTS; i++) {
+            ADD(ui->save_label[i], IT_PSAVE, i, false);
+        }
         break;
     case M_SYSTEM:
         ADD("Helligkeit", IT_FIELD, F_BRIGHT, false);
@@ -273,6 +286,7 @@ static int build_menu(ui_t *ui, uint8_t id, item_t *it)
         ADD("WLAN", IT_FIELD, F_WIFI, false);
         ADD("Akku", IT_INFO, I_BATTERY, false);
         ADD("Firmware", IT_INFO, I_FIRMWARE, false);
+        ADD("Historie löschen", IT_ACT, A_CLEARHIST, ui->hist->count == 0);
         ADD("Werkseinstellungen", IT_ACT, A_FACTORY, false);
         break;
     }
@@ -325,15 +339,15 @@ static void item_value(const ui_t *ui, const item_t *it, char *buf, size_t len)
             snprintf(buf, len, "%.1f kHz, %s", s->beep_hz / 1000.0, OPT_VOL[s->beep_volume > 2 ? 2 : s->beep_volume]);
             break;
         case M_LAST:
-            if (ui->hist_n) {
-                snprintf(buf, len, "#%lu", (unsigned long)ui->hist[ui->cur].seq);
+            if (ui->has_cur) {
+                snprintf(buf, len, "#%lu", (unsigned long)ui->cur.seq);
             }
             break;
         }
         break;
     case IT_ACT:
         if (it->arg == A_HISTORY) {
-            snprintf(buf, len, "%u", ui->hist_n);
+            snprintf(buf, len, "%u", ui->hist->count);
         }
         break;
     }
@@ -400,23 +414,49 @@ uint8_t ui_suggest_sensitivity(float max_db)
     return s;
 }
 
-void ui_init(ui_t *ui, settings_t *set, const ui_env_t *env)
+static void update_preset_labels(ui_t *ui, uint8_t slot)
+{
+    char name[24];
+    if (ui->preset_used[slot]) {
+        preset_name(&ui->presets[slot], name, sizeof(name));
+    } else {
+        snprintf(name, sizeof(name), "leer");
+    }
+    snprintf(ui->preset_label[slot], sizeof(ui->preset_label[slot]), "P%u %s", slot + 1, name);
+    snprintf(ui->save_label[slot], sizeof(ui->save_label[slot]), "Platz %u: %s", slot + 1, name);
+}
+
+void ui_init(ui_t *ui, settings_t *set, history_t *hist, const ui_env_t *env)
 {
     memset(ui, 0, sizeof(*ui));
     ui->set = set;
+    ui->hist = hist;
     ui->env = *env;
     ui->screen = UI_MAIN;
     ui->level.db = ui->level.peak = -70.0f;
+    for (uint8_t i = 0; i < PRESET_SLOTS; i++) {
+        update_preset_labels(ui, i);
+    }
+    if (hist_get(hist, 0, &ui->cur)) {
+        ui->has_cur = true;
+        ui->shot_sel = ui->cur.n ? ui->cur.n - 1 : 0;
+    }
+}
+
+void ui_set_preset(ui_t *ui, uint8_t slot, const settings_t *preset)
+{
+    if (slot < PRESET_SLOTS) {
+        ui->presets[slot] = *preset;
+        ui->preset_used[slot] = true;
+        update_preset_labels(ui, slot);
+    }
 }
 
 void ui_string_done(ui_t *ui, const shot_string_t *s)
 {
-    if (ui->hist_n < UI_HIST_MAX) {
-        ui->hist_n++;
-    }
-    memmove(&ui->hist[1], &ui->hist[0], sizeof(shot_string_t) * (ui->hist_n - 1));
-    ui->hist[0] = *s;
-    ui->cur = 0;
+    hist_append(ui->hist, s);
+    ui->cur = *s;
+    ui->has_cur = true;
     ui->shot_sel = s->n ? s->n - 1 : 0;
 }
 
@@ -519,10 +559,29 @@ static void key_menu(ui_t *ui, const btn_event_t *ev, int64_t now_us)
             go_main(ui);
             break;
         }
+        case IT_UPRESET:
+            preset_apply(ui->set, &ui->presets[it->arg]);
+            changed(ui);
+            toast(ui, ui->preset_label[it->arg], now_us);
+            go_main(ui);
+            break;
+        case IT_PSAVE: {
+            ui->presets[it->arg] = *ui->set;
+            ui->preset_used[it->arg] = true;
+            update_preset_labels(ui, it->arg);
+            if (ui->env.preset_save) {
+                ui->env.preset_save(ui->env.ctx, it->arg, ui->set);
+            }
+            char msg[32];
+            snprintf(msg, sizeof(msg), "Gespeichert auf Platz %u", it->arg + 1);
+            toast(ui, msg, now_us);
+            menu_back(ui);
+            break;
+        }
         case IT_ACT:
             switch (it->arg) {
             case A_HISTORY:
-                ui->hist_sel = ui->cur;
+                ui->hist_sel = 0;
                 ui->screen = UI_HISTORY;
                 break;
             case A_MICTEST:
@@ -556,11 +615,17 @@ static void key_menu(ui_t *ui, const btn_event_t *ev, int64_t now_us)
             case A_DELLAST: {
                 shot_string_t *c = current(ui);
                 ss_delete_last(c);
+                hist_update(ui->hist, c);
                 ui->shot_sel = c->n ? c->n - 1 : 0;
                 toast(ui, "Letzter Schuss gelöscht", now_us);
                 break;
             }
             case A_FACTORY:
+                ui->confirm = CONFIRM_FACTORY;
+                ui->screen = UI_CONFIRM;
+                break;
+            case A_CLEARHIST:
+                ui->confirm = CONFIRM_CLEAR_HISTORY;
                 ui->screen = UI_CONFIRM;
                 break;
             }
@@ -617,6 +682,7 @@ static void key_score(ui_t *ui, const btn_event_t *ev, int64_t now_us)
             memcpy(c->score, ui->score.v, SCORE_FIELDS);
             c->scored = true;
             c->power_factor = ui->set->power_factor;
+            hist_update(ui->hist, c);
             toast(ui, "Wertung gespeichert", now_us);
             go_main(ui);
         } else if (ev->key == BTN_BACK) {
@@ -761,11 +827,11 @@ void ui_key(ui_t *ui, const btn_event_t *ev, const timer_core_t *snap, int64_t n
         break;
 
     case UI_HISTORY:
-        if (ev->key == BTN_UP || ev->key == BTN_DOWN) {
-            browse(&ui->hist_sel, ui->hist_n, ev->key);
-        } else if (ev->key == BTN_OK && ui->hist_n) {
-            const shot_string_t *s = &ui->hist[ui->hist_sel];
-            ui->hview_sel = s->n ? s->n - 1 : 0;
+        if ((ev->key == BTN_UP || ev->key == BTN_DOWN) && ui->hist->count) {
+            uint16_t n = ui->hist->count;
+            ui->hist_sel = ev->key == BTN_DOWN ? (ui->hist_sel + 1) % n : (ui->hist_sel + n - 1) % n;
+        } else if (ev->key == BTN_OK && hist_get(ui->hist, ui->hist_sel, &ui->hview)) {
+            ui->hview_sel = ui->hview.n ? ui->hview.n - 1 : 0;
             ui->screen = UI_HVIEW;
         } else if (ev->key == BTN_BACK) {
             ui->screen = ev->press == PRESS_LONG ? UI_MAIN : UI_MENU;
@@ -777,9 +843,10 @@ void ui_key(ui_t *ui, const btn_event_t *ev, const timer_core_t *snap, int64_t n
 
     case UI_HVIEW:
         if (ev->key == BTN_UP || ev->key == BTN_DOWN) {
-            browse(&ui->hview_sel, ui->hist[ui->hist_sel].n, ev->key);
+            browse(&ui->hview_sel, ui->hview.n, ev->key);
         } else if (ev->key == BTN_OK) {
-            ui->cur = ui->hist_sel;
+            ui->cur = ui->hview;
+            ui->has_cur = true;
             ui->shot_sel = ui->hview_sel;
             go_main(ui);
         } else if (ev->key == BTN_BACK) {
@@ -792,10 +859,16 @@ void ui_key(ui_t *ui, const btn_event_t *ev, const timer_core_t *snap, int64_t n
         break;
 
     case UI_CONFIRM:
-        if (ev->key == BTN_OK) {
+        if (ev->key == BTN_OK && ui->confirm == CONFIRM_FACTORY) {
             settings_defaults(ui->set);
             changed(ui);
             toast(ui, "Werkseinstellungen geladen", now_us);
+            go_main(ui);
+        } else if (ev->key == BTN_OK) {
+            hist_clear(ui->hist);
+            ui->has_cur = false;
+            ui->shot_sel = 0;
+            toast(ui, "Historie gelöscht", now_us);
             go_main(ui);
         } else if (ev->key == BTN_BACK) {
             ui->screen = UI_MENU;
@@ -910,7 +983,7 @@ static void draw_menu(ui_t *ui, gfx_t *g)
         snprintf(label, sizeof(label), "%s%s", (it->type == IT_MODE && ui->set->mode == it->arg) ? "● " : "", it->label);
         gfx_text(g, F_TEXT, 10, y + 21, GFX_LEFT, col, label);
         item_value(ui, it, val, sizeof(val));
-        if (it->type == IT_SUB || it->type == IT_ACT || it->type == IT_PRESET) {
+        if (it->type == IT_SUB || it->type == IT_ACT || it->type == IT_PRESET || it->type == IT_UPRESET) {
             size_t l = strlen(val);
             snprintf(val + l, sizeof(val) - l, "%s›", l ? "  " : "");
         }
@@ -1011,22 +1084,27 @@ static void draw_learn(ui_t *ui, gfx_t *g, int64_t now_us)
 static void draw_history(ui_t *ui, gfx_t *g)
 {
     status_bar(ui, g, "Historie", C_FG);
-    if (!ui->hist_n) {
+    int hist_n = ui->hist->count;
+    if (!hist_n) {
         gfx_text(g, F_TEXT, GFX_W / 2, 120, GFX_CENTER, C_MUTED, "Noch keine Strings");
         footer(g, "◄ Zurück");
         return;
     }
     const int rows = 7, rh = 28;
     int top = ui->hist_sel - 3;
-    if (top > ui->hist_n - rows) {
-        top = ui->hist_n - rows;
+    if (top > hist_n - rows) {
+        top = hist_n - rows;
     }
     if (top < 0) {
         top = 0;
     }
-    for (int k = 0; k < rows && top + k < ui->hist_n; k++) {
+    for (int k = 0; k < rows && top + k < hist_n; k++) {
         int i = top + k, y = 22 + k * rh;
-        const shot_string_t *s = &ui->hist[i];
+        static shot_string_t row;
+        if (!hist_get(ui->hist, i, &row)) {
+            continue;
+        }
+        const shot_string_t *s = &row;
         bool on = i == ui->hist_sel;
         gfx_color_t col = on ? C_ON_ACC : C_FG, mut = on ? C_ON_ACC : C_MUTED;
         if (on) {
@@ -1083,10 +1161,17 @@ static void draw_score(ui_t *ui, gfx_t *g)
 
 static void draw_confirm(ui_t *ui, gfx_t *g)
 {
-    status_bar(ui, g, "Werkseinstellungen", C_FG);
-    gfx_text(g, F_TEXT, GFX_W / 2, 96, GFX_CENTER, C_FG, "Alle Einstellungen zurücksetzen?");
-    gfx_text(g, F_SMALL, GFX_W / 2, 128, GFX_CENTER, C_MUTED, "Die Historie bleibt erhalten.");
-    footer(g, "OK Zurücksetzen   ◄ Abbrechen");
+    if (ui->confirm == CONFIRM_FACTORY) {
+        status_bar(ui, g, "Werkseinstellungen", C_FG);
+        gfx_text(g, F_TEXT, GFX_W / 2, 96, GFX_CENTER, C_FG, "Alle Einstellungen zurücksetzen?");
+        gfx_text(g, F_SMALL, GFX_W / 2, 128, GFX_CENTER, C_MUTED, "Historie und Presets bleiben erhalten.");
+        footer(g, "OK Zurücksetzen   ◄ Abbrechen");
+    } else {
+        status_bar(ui, g, "Historie löschen", C_FG);
+        gfx_textf(g, F_TEXT, GFX_W / 2, 96, GFX_CENTER, C_FG, "Alle %u Strings löschen?", ui->hist->count);
+        gfx_text(g, F_SMALL, GFX_W / 2, 128, GFX_CENTER, C_MUTED, "Das kann nicht rückgängig gemacht werden.");
+        footer(g, "OK Löschen   ◄ Abbrechen");
+    }
 }
 
 // Zeitleiste mit Par-Marken, Schüssen und aktueller Zeit
@@ -1223,8 +1308,8 @@ void ui_render(ui_t *ui, const timer_core_t *snap, int64_t now_us, gfx_t *g)
             break;
         case UI_HVIEW: {
             char title[24];
-            snprintf(title, sizeof(title), "Historie #%lu", (unsigned long)ui->hist[ui->hist_sel].seq);
-            draw_string(ui, g, &ui->hist[ui->hist_sel], ui->hview_sel, title, "▲▼ Schüsse   OK Übernehmen   ◄ Liste");
+            snprintf(title, sizeof(title), "Historie #%lu", (unsigned long)ui->hview.seq);
+            draw_string(ui, g, &ui->hview, ui->hview_sel, title, "▲▼ Schüsse   OK Übernehmen   ◄ Liste");
             break;
         }
         case UI_SCORE:
