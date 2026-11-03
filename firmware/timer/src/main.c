@@ -1,5 +1,7 @@
-// Timer-Firmware, Meilenstein M2: Kern + Tasten + Schusserkennung + Beep.
-// Bis zum Display (M3) erfolgen Anzeige und Einstellungen über die serielle Konsole (115200 Baud):
+// Timer-Firmware, Meilenstein M3: Kern + Tasten + Schusserkennung + Beep + Display mit Menü.
+// Tasks: timer (Zustandsautomat, Tasten, Schüsse, Konsole), ui (zeichnet das Display), buttons, shots,
+// console. Kern, Einstellungen und UI-Zustand sind durch s_lock geschützt.
+// Die serielle Konsole (115200 Baud) bleibt zum Testen und Protokollieren erhalten:
 //   STATE,<Zustand>
 //   SHOT,<n>,<zeit_s>,<split_s>,<pegel_dbfs>
 //   STRING,<nr>,<modus>,<schuesse>,<erster_s>,<gesamt_s>,<schnellster_split_s>,<avg_split_s>,<ende>
@@ -13,6 +15,7 @@
 #include "board_pins.h"
 #include "buttons.h"
 #include "config_store.h"
+#include "display.h"
 #include "driver/gpio.h"
 #include "driver/uart.h"
 #include "envelope.h"
@@ -20,19 +23,25 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
 #include "settings.h"
 #include "shot_string.h"
 #include "timer_core.h"
+#include "ui.h"
 
 #define CONSOLE_UART    UART_NUM_0
 #define CMD_LEN         64
 #define BEEP_WARN_MS    150
 #define BEEP_END_MS     700
 #define BLANK_EXTRA_MS  20      // Erkennung nach dem Beep noch so lange aus
+#define LEARN_THR_DBFS  -55.0f  // Schwelle für „Umgebung lernen“: auch leise Nachbarschüsse erfassen
+#define UI_FRAME_MS     40      // Bildwechsel bei laufender Anzeige
+#define UI_IDLE_MS      500
+#define UI_TICK_US      100000
 
-typedef enum { EV_KEY, EV_SHOT, EV_CMD } app_ev_type_t;
+typedef enum { EV_KEY, EV_SHOT, EV_LEVEL, EV_CMD } app_ev_type_t;
 
 typedef struct {
     app_ev_type_t type;
@@ -42,6 +51,10 @@ typedef struct {
             int64_t t_us;
             int8_t db;
         } shot;
+        struct {
+            float db;
+            bool clipped;
+        } level;
         char cmd[CMD_LEN];
     };
 } app_ev_t;
@@ -56,6 +69,13 @@ static QueueHandle_t s_queue;
 static timer_core_t s_tc;
 static settings_t s_set;
 static tc_state_t s_shown_state = TC_READY;
+
+static SemaphoreHandle_t s_lock;            // schützt s_tc, s_set und s_ui
+static ui_t s_ui;
+static gfx_t s_gfx;                         // nur im UI-Task benutzt
+static TaskHandle_t s_ui_task;
+static volatile bool s_listen_raw;          // Rohdetektionen an die UI („Umgebung lernen“)
+static volatile int8_t s_power_req = -1;    // Anzeige ein/aus, wird im UI-Task ausgeführt
 
 static uint32_t rand32(void)
 {
@@ -80,10 +100,18 @@ static void shot_task(void *arg)
 {
     env_event_t e;
     while (true) {
-        if (env_get_event(&e, portMAX_DELAY) && e.type == ENV_EVT_SHOT) {
+        if (!env_get_event(&e, portMAX_DELAY)) {
+            continue;
+        }
+        if (e.type == ENV_EVT_SHOT) {
             app_ev_t a = { .type = EV_SHOT };
             a.shot.t_us = env_idx_to_us(e.idx);
             a.shot.db = e.peak_dbfs < -127.0f ? -127 : (int8_t)e.peak_dbfs;
+            xQueueSend(s_queue, &a, 0);
+        } else if (e.type == ENV_EVT_LEVEL) {
+            app_ev_t a = { .type = EV_LEVEL };
+            a.level.db = e.peak_dbfs;
+            a.level.clipped = e.high_clipped;
             xQueueSend(s_queue, &a, 0);
         }
     }
@@ -199,6 +227,7 @@ static void apply(uint32_t act)
     }
     if (act & TC_ACT_STRING_DONE) {
         print_string();
+        ui_string_done(&s_ui, &s_tc.last);
     }
     if (s_tc.state != s_shown_state) {
         s_shown_state = s_tc.state;
@@ -212,7 +241,40 @@ static void settings_changed(void)
 {
     settings_sanitize(&s_set);
     config_save(&s_set);
+    display_backlight(s_set.brightness);
     print_settings();
+}
+
+// ---------- Rückrufe der UI (laufen im Timer-Task, s_lock ist gehalten) ----------
+
+static void ui_cb_start(void *ctx)
+{
+    apply(tc_start_key(&s_tc, &s_set, esp_timer_get_time()));
+}
+
+static void ui_cb_settings(void *ctx)
+{
+    settings_changed();
+}
+
+static void ui_cb_power(void *ctx, bool on)
+{
+    s_power_req = on;
+    printf("# Anzeige %s\n", on ? "ein" : "aus");
+}
+
+static void ui_cb_beep_test(void *ctx)
+{
+    beep(s_set.beep_ms, false);
+}
+
+static void ui_cb_listen(void *ctx, bool levels, bool raw)
+{
+    env_set_level_report(levels);
+    s_listen_raw = raw;
+    env_config_t *c = env_config();
+    c->threshold_dbfs = raw ? LEARN_THR_DBFS : settings_threshold_dbfs(s_set.sensitivity);
+    c->dead_time_ms = s_set.echo_ms;
 }
 
 static void handle_cmd(char *line)
@@ -319,13 +381,6 @@ static void handle_cmd(char *line)
 
 // ---------- Timer-Task ----------
 
-static void handle_key(const btn_event_t *k, int64_t now)
-{
-    // M2: nur START wirkt; Menü und Anzeige folgen mit dem Display (M3)
-    if (k->key == BTN_START && k->press == PRESS_SHORT) {
-        apply(tc_start_key(&s_tc, &s_set, now));
-    }
-}
 
 static void timer_task(void *arg)
 {
@@ -337,14 +392,23 @@ static void timer_task(void *arg)
             int64_t d = deadline - esp_timer_get_time();
             wait = d <= 0 ? 0 : pdMS_TO_TICKS((d + 999) / 1000);
         }
-        if (xQueueReceive(s_queue, &e, wait) == pdTRUE) {
-            int64_t now = esp_timer_get_time();
+        bool got = xQueueReceive(s_queue, &e, wait) == pdTRUE;
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        int64_t now = esp_timer_get_time();
+        if (got) {
             switch (e.type) {
             case EV_KEY:
-                handle_key(&e.key, now);
+                ui_key(&s_ui, &e.key, &s_tc, now);
                 break;
             case EV_SHOT:
-                apply(tc_shot(&s_tc, e.shot.t_us, e.shot.db));
+                if (s_listen_raw) {
+                    ui_raw_shot(&s_ui, e.shot.db, now);
+                } else {
+                    apply(tc_shot(&s_tc, e.shot.t_us, e.shot.db));
+                }
+                break;
+            case EV_LEVEL:
+                ui_level(&s_ui, e.level.db, e.level.clipped);
                 break;
             case EV_CMD:
                 handle_cmd(e.cmd);
@@ -352,6 +416,33 @@ static void timer_task(void *arg)
             }
         }
         apply(tc_tick(&s_tc, esp_timer_get_time()));
+        xSemaphoreGive(s_lock);
+        xTaskNotifyGive(s_ui_task);
+    }
+}
+
+// ---------- UI-Task ----------
+
+static void ui_task(void *arg)
+{
+    int64_t last_tick = 0;
+    bool animating = false;
+    while (true) {
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(animating ? UI_FRAME_MS : UI_IDLE_MS));
+        if (s_power_req >= 0) {
+            display_power(s_power_req);
+            s_power_req = -1;
+        }
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        int64_t now = esp_timer_get_time();
+        if (now - last_tick >= UI_TICK_US) {
+            ui_tick(&s_ui, now);
+            last_tick = now;
+        }
+        ui_render(&s_ui, &s_tc, now, &s_gfx);
+        animating = ui_animating(&s_ui, &s_tc);
+        xSemaphoreGive(s_lock);
+        display_draw(&s_gfx);   // dauert ca. 30 ms, läuft außerhalb der Sperre
     }
 }
 
@@ -373,15 +464,27 @@ void app_main(void)
     env_start();
 
     s_queue = xQueueCreate(16, sizeof(app_ev_t));
+    s_lock = xSemaphoreCreateMutex();
     tc_init(&s_tc, rand32, 1);
+    const ui_env_t env = {
+        .start_key = ui_cb_start,
+        .settings_changed = ui_cb_settings,
+        .power = ui_cb_power,
+        .beep_test = ui_cb_beep_test,
+        .listen = ui_cb_listen,
+    };
+    ui_init(&s_ui, &s_set, &env);
+    display_init();
+    display_backlight(s_set.brightness);
 
     ESP_ERROR_CHECK(uart_driver_install(CONSOLE_UART, 256, 0, 0, NULL, 0));
-    printf("# Shot-Timer Firmware (M2, Anzeige ueber Konsole)\n");
+    printf("# Shot-Timer Firmware %s\n", UI_FW_VERSION);
     print_help();
     print_settings();
     printf("STATE,%s\n", STATE_NAMES[s_tc.state]);
 
-    xTaskCreatePinnedToCore(timer_task, "timer", 4096, NULL, configMAX_PRIORITIES - 3, NULL, 0);
+    xTaskCreatePinnedToCore(ui_task, "ui", 6144, NULL, 4, &s_ui_task, 0);
+    xTaskCreatePinnedToCore(timer_task, "timer", 6144, NULL, configMAX_PRIORITIES - 3, NULL, 0);
     xTaskCreatePinnedToCore(shot_task, "shots", 3072, NULL, configMAX_PRIORITIES - 4, NULL, 0);
     xTaskCreatePinnedToCore(console_task, "console", 3072, NULL, 3, NULL, 0);
     buttons_start(on_button);
