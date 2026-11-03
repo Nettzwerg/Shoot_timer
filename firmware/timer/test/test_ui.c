@@ -395,6 +395,26 @@ static void test_power_and_factory(void)
     CHECK_EQ(ui.screen, UI_MAIN);
 }
 
+static void test_battery_and_notice(void)
+{
+    setup();
+    CHECK_EQ(ui.battery_state, BATT_NONE);  // bis zur ersten Messung: USB
+    ui_battery(&ui, 3.38f, pwr_percent(3.38f), BATT_LOW, false);
+    ui_render(&ui, &tc, 0, &g);
+    CHECK(!g.overflow);
+    ui_message(&ui, "Akku schwach", US(10));
+    CHECK(strcmp(ui.toast, "Akku schwach") == 0);
+
+    ui_notice(&ui, "Akku leer");
+    CHECK_EQ(ui.screen, UI_NOTICE);
+    fx_press(&ui, &tc, BTN_START);          // keine Bedienung mehr
+    fx_press(&ui, &tc, BTN_OK);
+    CHECK_EQ(fx_calls.start_keys, 0);
+    CHECK_EQ(ui.screen, UI_NOTICE);
+    ui_render(&ui, &tc, 0, &g);
+    CHECK(g.n >= 2);
+}
+
 static void test_render_all_screens(void)
 {
     // Jeder Bildschirm muss in die Befehlsliste passen
@@ -467,6 +487,7 @@ int main(void)
     RUN(test_suggest);
     RUN(test_learn);
     RUN(test_power_and_factory);
+    RUN(test_battery_and_notice);
     RUN(test_render_all_screens);
     RUN(test_gfx_text_and_render);
     printf("\n%d Prüfungen, %d Fehler\n", s_checks, s_failed);

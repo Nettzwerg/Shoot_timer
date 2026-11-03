@@ -23,6 +23,10 @@
 #define PIN_TFT_MOSI    11
 #define PIN_TFT_SCK     12
 
+// Ladestatus des TP4056 (optional, Open-Drain, Low = aktiv; unbeschaltet: interne Pull-ups)
+#define PIN_CHG_STDBY   13  // Akku voll
+#define PIN_CHG_CHRG    21  // lädt
+
 // Bedientasten (gegen GND, interne Pull-ups)
 #define PIN_KEY_START   14  // RTC-GPIO, weckt aus dem Deep-Sleep
 #define PIN_KEY_UP      15

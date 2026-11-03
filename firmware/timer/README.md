@@ -2,17 +2,18 @@
 
 Gerätesoftware des Shot-Timers. Architektur: [docs/FIRMWARE_ARCHITEKTUR.md](../../docs/FIRMWARE_ARCHITEKTUR.md).
 
-## Stand: Meilenstein M5
+## Stand: Meilenstein M6
 
 | funktioniert | folgt |
 |---|---|
 | Alle 6 Modi (Standard, Par, Spy, Trockentraining, Wiederholung, Countdown) | Test auf dem Steckbrett mit Display (M4) |
-| Startverzögerung, Start-, Par-, Warn- und Ende-Beep | Energieverwaltung, Deep-Sleep, Akkuanzeige (M6); „Aus“ schaltet bisher nur das Display ab |
+| Startverzögerung, Start-, Par-, Warn- und Ende-Beep | Abstimmung der Erkennung mit den Messwerten vom Stand (M7) |
 | Schusserkennung mit Zeitstempeln in µs, Empfindlichkeit und Echo-Zeit | WLAN, Export (M8) |
 | **Display mit allen Bildschirmen und Menü** wie im [UI-Prototyp](../../docs/ui-prototyp.html) | |
 | Schnelleinstellung Empfindlichkeit mit Pegelanzeige, Mikrofon-Test, „Umgebung lernen“ | |
 | **Historie mit 200 Strings im Flash** (bleibt nach dem Ausschalten), Hit-Factor-Wertung, letzten Schuss löschen, Historie löschen | |
 | 4 eingebaute Drills und **10 eigene Presets** (Menü → Presets → Aktuelle speichern) | |
+| **Energieverwaltung:** Akkusymbol mit Füllstand, Warnung bei schwachem Akku, Abschalten bei leerem Akku, Dimmen nach 60 s, Auto-Aus, **Tiefschlaf** (START 2 s), Wecken mit START | |
 | Einstellungen werden im NVS gespeichert; Konsole zum Testen | |
 
 ## Bildschirme
@@ -27,6 +28,7 @@ Erzeugt am PC aus genau dem Code, der auf dem Gerät läuft (`make -C firmware/t
 | ![Werteditor](../../docs/ui-screens/10_werteditor.png) | ![Schnelleinstellung](../../docs/ui-screens/11_schnelleinstellung.png) | ![Umgebung lernen](../../docs/ui-screens/12_lernen.png) |
 | ![Vorschlag](../../docs/ui-screens/13_lernen_vorschlag.png) | ![Historie](../../docs/ui-screens/14_historie.png) | ![Wertung](../../docs/ui-screens/15_wertung.png) |
 | ![Wertung Ergebnis](../../docs/ui-screens/16_wertung_ergebnis.png) | ![Ergebnis mit Hit Factor](../../docs/ui-screens/17_ergebnis_mit_hf_und_meldung.png) | ![Presets](../../docs/ui-screens/18_presets.png) |
+| ![Akku schwach](../../docs/ui-screens/19_akku_schwach.png) | ![Akku leer](../../docs/ui-screens/20_akku_leer.png) | |
 
 ## Aufbau
 
@@ -35,7 +37,9 @@ Läuft auf dem Steckbrett aus Phase 1 + 2 ([SCHALTPLAN_PROTOTYP.md](../../docs/S
 - **Display** (2,0" IPS, ST7789, 240 × 320, SPI) nach Kap. 4.2: SCL → GPIO 12, SDA → 11, CS → 10, DC → 9, RES → 8, BLK → 7, VCC → 3V3, GND.
 - **Tasten** nach Kap. 4.3: START → GPIO 14, ▲ → 15, ▼ → 16, OK → 17, ◄ → 18, jeweils gegen GND.
 
-Ohne eigene START-Taste wirkt die Taste **BOOT** des DevKits als START. Nicht beim Einschalten drücken, sonst startet der ESP32 im Programmiermodus.
+Ohne eigene START-Taste wirkt die Taste **BOOT** des DevKits als START. Nicht beim Einschalten drücken, sonst startet der ESP32 im Programmiermodus. Aus dem Tiefschlaf weckt nur die START-Taste an GPIO 14; ohne sie die RESET-Taste des DevKits.
+
+**Akku:** Spannungsteiler nach Kap. 4.1 an GPIO 4. **Ohne Akku** (USB-Betrieb auf dem Steckbrett) GPIO 4 mit 10 kΩ an GND legen, sonst liefert der offene Eingang zufällige Werte und der Timer könnte „Akku leer“ melden. Optional: `CHRG` des TP4056 an GPIO 21 (Akkusymbol grün beim Laden).
 
 **Bild gespiegelt, gedreht oder falsche Farben?** Die Module unterscheiden sich. In `src/hal/display.c` oben `LCD_MIRROR_X`, `LCD_MIRROR_Y` bzw. `LCD_INVERT` umstellen und neu flashen.
 

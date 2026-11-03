@@ -10,13 +10,14 @@
 #include "buttons.h"
 #include "gfx.h"
 #include "history.h"
+#include "power.h"
 #include "presets.h"
 #include "settings.h"
 #include "shot_string.h"
 #include "timer_core.h"
 
 #define UI_MENU_DEPTH   4
-#define UI_FW_VERSION   "0.5.0"
+#define UI_FW_VERSION   "0.6.0"
 
 typedef struct {
     void (*start_key)(void *ctx);                   // START an den Timer weitergeben
@@ -40,6 +41,7 @@ typedef enum {
     UI_SCORE,
     UI_CONFIRM,
     UI_OFF,
+    UI_NOTICE,          // Hinweis vor dem Ausschalten (z. B. „Akku leer“)
 } ui_screen_t;
 
 typedef enum { CONFIRM_FACTORY = 0, CONFIRM_CLEAR_HISTORY } ui_confirm_t;
@@ -94,7 +96,11 @@ typedef struct {
 
     char toast[32];
     int64_t toast_until;
-    float battery_v;        // 0 = unbekannt
+    float battery_v;
+    uint8_t battery_pct;
+    uint8_t battery_state;  // batt_state_t, BATT_NONE bis zur ersten Messung
+    bool charging;
+    char notice[40];
 } ui_t;
 
 // hist muss geöffnet sein; der neueste gespeicherte String erscheint im Hauptbildschirm.
@@ -108,6 +114,9 @@ void ui_string_done(ui_t *ui, const shot_string_t *s);   // fertigen String spei
 void ui_level(ui_t *ui, float db, bool clipped);         // Pegelmeldung (ca. 10 Hz)
 void ui_raw_shot(ui_t *ui, float db, int64_t now_us);    // Rohdetektion für „Umgebung lernen“
 void ui_tick(ui_t *ui, int64_t now_us);                  // Zeitabläufe (Lernen, Pegelabfall)
+void ui_battery(ui_t *ui, float v, uint8_t pct, batt_state_t state, bool charging);
+void ui_message(ui_t *ui, const char *text, int64_t now_us);    // kurze Meldung oben
+void ui_notice(ui_t *ui, const char *text);              // Hinweisbildschirm, z. B. vor dem Ausschalten
 
 void ui_render(ui_t *ui, const timer_core_t *snap, int64_t now_us, gfx_t *g);
 

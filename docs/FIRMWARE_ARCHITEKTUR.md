@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Dokument** | Architektur der Timer-Firmware (Gerätesoftware) |
-| **Version** | 0.5 (Entwurf) – M1, M2, M3 und M5 umgesetzt |
+| **Version** | 0.6 (Entwurf) – M1, M2, M3, M5 und M6 umgesetzt |
 | **Datum** | 2026-10-26 |
 | **Bezug** | [ANFORDERUNGEN.md](ANFORDERUNGEN.md) v0.2, [HARDWARE_KONZEPT.md](HARDWARE_KONZEPT.md) v0.2, Mess-Firmware [`firmware/mess`](../firmware/mess) |
 | **UI-Prototyp** | [`docs/ui-prototyp.html`](ui-prototyp.html) – klickbarer Simulator von Display und Tasten (online: https://claude.ai/artifact/Wt1kxmGZ3CRdpYLcE5ey93) |
@@ -242,14 +242,27 @@ Umgesetzt in `src/core/history.c` (plattformunabhängig, Host-Tests) und `src/sv
 
 ## 10. Energieverwaltung
 
+Umgesetzt in `src/core/power.c` (plattformunabhängig, Host-Tests) und `src/hal/sleep.c` (Tiefschlaf).
+
 | Zustand | Display | ESP32 | Übergang |
 |---|---|---|---|
-| Aktiv | volle Helligkeit | 80–160 MHz | jede Taste, jeder Schuss |
-| Gedimmt | 20 % | aktiv | 60 s ohne Bedienung (nicht während Lauf) |
-| Aus | aus, Sleep-Befehl | Deep-Sleep, Analogteil und Boost stromlos | Auto-Aus nach 5–60 min (einstellbar) oder START 2 s |
+| Aktiv | eingestellte Helligkeit | 160 MHz | jede Taste, jeder Schuss |
+| Gedimmt | Helligkeit ÷ 5 (mindestens 10 %) | aktiv | 60 s ohne Bedienung; nicht während Verzögerung, Lauf, Pause oder offener Pegelanzeige. Der erste Tastendruck weckt nur die Anzeige. |
+| Aus | aus | Tiefschlaf; Analogteil, Boost und H-Brücke stromlos, Pins gehalten | START 2 s, Auto-Aus (5–60 min ohne Bedienung, einstellbar) oder Akku leer |
 
-- Vor dem Deep-Sleep: offenen String speichern, Einstellungen sichern.
-- Akku < 3,4 V: Warnsymbol; < 3,3 V: speichern und ausschalten (N-023, Kap. 6 im Hardware-Konzept).
+- **Wecken:** nur mit START (GPIO 14, RTC-GPIO, ext1). Der ESP32 startet neu, lädt Einstellungen und Historie und zeigt den neuesten String. Der START-Druck zum Wecken startet keinen String; die Tasten reagieren erst nach dem Loslassen. Ohne eigene START-Taste weckt die RESET-Taste des DevKits. BOOT (GPIO 0) ist als Strapping-Pin bewusst keine Wecktaste.
+- **Vor dem Tiefschlaf:** Ein laufender String wird regulär beendet und gespeichert (Historie und Einstellungen sind ohnehin sofort gespeichert). Ein Hinweis („Timer aus“, „Automatisch aus“, „Akku leer“) steht 1,5 s im Display.
+- **Akku** (1 × pro Sekunde, Spannung über den Teiler an GPIO 4, gleitender Mittelwert über ca. 5 s):
+
+| Spannung | Zustand | Anzeige / Aktion |
+|---|---|---|
+| < 2,8 V | kein Akku (USB) | „USB“ statt Akkusymbol, keine Warnung |
+| ≥ 3,50 V | OK | Akkusymbol mit Füllstand (LiPo-Kennlinie) |
+| < 3,40 V | schwach | Symbol rot, einmal Meldung „Akku schwach“ (zurück erst ab 3,50 V) |
+| < 3,30 V für 10 s | leer | String speichern, Hinweis „Akku leer“, Tiefschlaf (N-023). Kurze Einbrüche, z. B. beim Beep, lösen nichts aus. |
+
+- **Laden:** Ist der `CHRG`-Ausgang des TP4056 an GPIO 21 angeschlossen (optional), wird das Akkusymbol beim Laden grün. Unbeschaltet halten interne Pull-ups den Eingang auf „lädt nicht“.
+- **Ohne Akku auf dem Steckbrett:** GPIO 4 mit 10 kΩ an GND legen, damit der offene Eingang keine Fantasiewerte liefert. Die Firmware erkennt dann „USB“.
 
 ---
 
@@ -321,4 +334,5 @@ Die Host-Tests sollen später in GitHub Actions laufen. Dort wird auch die Firmw
 | M2 Gemeinsame Komponenten, Projektgerüst | **erledigt**: `firmware/components` (board, envelope, beeper), `firmware/timer` baut und läuft mit START-Taste, Schusserkennung und Beep; Anzeige und Einstellungen vorerst über die serielle Konsole ([Anleitung](../firmware/timer/README.md)) |
 | M3 Display, Schriften, Bildschirme, Menü | **erledigt**: `src/ui` (gfx mit Streifen-Rasterung, alle Bildschirme und Menüs nach Prototyp, plattformunabhängig mit Host-Tests und [Screenshots](ui-screens)), `src/hal/display.c` (ST7789 über esp_lcd, SPI-DMA, PWM-Beleuchtung), UI-Task; Historie vorerst im RAM |
 | M5 Historie, Presets, Einstellungen | **erledigt**: `core/history` (CRC-Ring über 200 Flash-Sektoren, Tests mit Stromausfall und beschädigten Blöcken), `core/presets` + 10 Plätze im NVS, UI liest die Historie direkt aus dem Speicher, „Historie löschen“ |
-| M4, M6–M8 | offen (M4: Test auf dem Steckbrett mit Display) |
+| M6 Energieverwaltung | **erledigt**: `core/power` (Akkuzustand mit Hysterese und Entprellung, Dimmen, Auto-Aus; Host-Tests), `hal/sleep` (Tiefschlaf, Pins halten, Wecken mit START), Akkusymbol und Hinweise in der UI |
+| M4, M7, M8 | offen (M4: Test auf dem Steckbrett mit Display) |
