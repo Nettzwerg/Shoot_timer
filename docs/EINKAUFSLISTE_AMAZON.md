@@ -28,8 +28,8 @@ Diese Liste ist auf **amazon.de** zugeschnitten: Dort gibt es Elektronik meist a
 | ☐ | 5 | **Piezo-Schallwandler passiv** (ohne Elektronik)<br>[bei Amazon suchen](https://www.amazon.de/s?k=Piezo+Summer+passiv) | 1–2 Packs | Nur **passiv**, nicht „aktiv“. Gut: verschiedene Größen (12 mm und 23–35 mm). Laute Typen sind oft für 12–24 V angegeben. | 6–10 |
 | ☐ | 6 | **Steckbrett 830 Kontakte** + **Steckbrücken**<br>[bei Amazon suchen](https://www.amazon.de/s?k=Breadboard+830+Set+Jumper+Kabel) | 1 Set (2–3 Boards) | Sets mit 3 Breadboards und Kabeln (Stecker–Stecker, Stecker–Buchse) sind am günstigsten. | 8–12 |
 | ☐ | 7 | **Widerstandssortiment** Metallschicht 1 %<br>[bei Amazon suchen](https://www.amazon.de/s?k=Widerstand+Sortiment+Metallschicht+1%25+600) | 1 | Muss enthalten: 10 Ω, 1 kΩ, 2,2 kΩ, 4,7 kΩ, 10 kΩ, 22 kΩ, 100 kΩ, 470 kΩ. | 7–10 |
-| ☐ | 8 | **Keramikkondensator-Sortiment**<br>[bei Amazon suchen](https://www.amazon.de/s?k=Keramik+Kondensator+Sortiment+100nF+1uF) | 1 | Muss enthalten: 100 nF, 150 nF oder 220 nF, 1 µF. | 6–9 |
-| ☐ | 9 | **Elko-Sortiment**<br>[bei Amazon suchen](https://www.amazon.de/s?k=Elektrolytkondensator+Sortiment) | 1 | 10 µF und 100 µF, mindestens 16 V. | 6–9 |
+| ☐ | 8 | **Keramikkondensatoren 100 nF** (Aufdruck „104“)<br>[bei Amazon suchen](https://www.amazon.de/s?k=Keramikkondensator+100nF)<br>oder als [Sortiment](https://www.amazon.de/s?k=Keramikkondensator+Sortiment) | 1 Pack (ab 20 Stück) | Es wird **nur 100 nF** gebraucht, etwa 12 Stück. Bedrahtet, 50 V. Ein Sortiment mit 100 nF geht genauso. Siehe Hinweis unter der Tabelle. | 4–8 |
+| ☐ | 9 | **Elko-Sortiment**<br>[bei Amazon suchen](https://www.amazon.de/s?k=Elektrolytkondensator+Sortiment) | 1 | Muss enthalten: 10 µF und 100 µF, mindestens 16 V. | 6–9 |
 | ☐ | 10 | **Schottky-Dioden-Sortiment**<br>[bei Amazon suchen](https://www.amazon.de/s?k=Schottky+Diode+Sortiment+1N5817+1N5819) | 1 | Mit **1N5817/1N5819** – ersetzt BAT54/BAT85 (D1, D2) und SS14 (D3). | 5–8 |
 | ☐ | 11 | **N-MOSFET 2N7000** (TO-92)<br>[bei Amazon suchen](https://www.amazon.de/s?k=2N7000+MOSFET) | 1 Pack | Ersetzt 2N7002/BS170 (Q3). Gleichwertig für diesen Zweck. | 5–7 |
 | ☐ | 12 | **P-MOSFET AO3401** (SOT-23)<br>[bei Amazon suchen](https://www.amazon.de/s?k=AO3401+SOT-23) | 1 Pack | SMD, braucht Adapter (Pos. 13). | 4–7 |
@@ -37,6 +37,11 @@ Diese Liste ist auf **amazon.de** zugeschnitten: Dort gibt es Elektronik meist a
 | ☐ | 14 | **Abgeschirmtes Mikrofonkabel** 2-adrig<br>[bei Amazon suchen](https://www.amazon.de/s?k=Mikrofonkabel+2+adrig+abgeschirmt) | 2 m | Alternativ: 3,5-mm-Klinken-Verlängerung zerschneiden. | 4–6 |
 | ☐ | 15 | **Stiftleisten** 2,54 mm<br>[bei Amazon suchen](https://www.amazon.de/s?k=Stiftleiste+2%2C54mm+40+polig) | 1 Pack | Gerade, zum Anlöten an Module und Adapter. | 4–6 |
 | ☐ | 16 | **USB-C-Kabel, datenfähig**<br>[bei Amazon suchen](https://www.amazon.de/s?k=USB+C+Kabel+Daten) | 1 | Kein reines Ladekabel, sonst klappt das Flashen nicht. | 5–8 |
+
+> **Kondensatoren – nur 100 nF nötig.** Die üblichen Keramik-Sortimente enden meist bei 100 nF. Die Schaltung funktioniert damit ohne Einschränkung:
+> - **C1** (Koppelkondensator): 100 nF statt 1 µF. Der Hochpass liegt dann bei ca. 16 Hz statt 1,6 Hz, das ist für Schüsse ohne Bedeutung.
+> - **C3, C4** (Hochpass der Verstärker): je **zwei 100 nF parallel** (= 200 nF, Hochpass ca. 80 Hz) statt 150 nF. Ein einzelner 100 nF geht auch (ca. 160 Hz).
+> - **C5, C6, C8** (und C11 in Phase 3): ohnehin 100 nF.
 
 **Summe Warenkorb 1:** ca. **95–150 €**. Das ist mehr als die Bauteilkosten, weil Sortimente, Mehrfachpacks und Reserveteile dabei sind. Diese reichen auch für Phase 3 und spätere Projekte.
 

@@ -99,9 +99,9 @@ In Phase 1 und 2 versorgt der USB-Anschluss des Dev-Boards alles: **3V3-Pin** f�
 | R9, R11 | 1 kΩ | Schutz ADC-Eingang |
 | R12, R13 | 10 kΩ | Teiler VREF |
 | R14 | 100 kΩ | Q1 im Ruhezustand aus |
-| C1 | 1 µF Folie/Keramik | Koppelkondensator |
+| C1 | 1 µF Folie/Keramik (100 nF geht auch, Hochpass dann ca. 16 Hz) | Koppelkondensator |
 | C2 | 100 µF Elko | Siebung Bias |
-| C3, C4 | 150 nF | Hochpass ≈ 106 Hz (gegen Griff- und Windgeräusche) |
+| C3, C4 | 150 nF (Ersatz: 2 × 100 nF parallel ≈ 80 Hz, oder 100 nF ≈ 160 Hz) | Hochpass ≈ 106 Hz (gegen Griff- und Windgeräusche) |
 | C5, C6 | 100 nF | Hüllkurven-Speicher |
 | C7, C9 | 10 µF | VREF bzw. AVCC |
 | C8 | 100 nF | Abblockkondensator U1 |
