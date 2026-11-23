@@ -7,6 +7,8 @@
 
 Die Liste ist nach Bauphasen gegliedert. **Teil 1 reicht für den Messtermin am Stand** (Phase 1 und 2). Teil 2 wird erst für das Funktionsmuster mit Akku und Display gebraucht und kann später bestellt werden.
 
+**Bestellung bei Amazon:** eigene Liste mit Suchlinks und Packgrößen in [EINKAUFSLISTE_AMAZON.md](EINKAUFSLISTE_AMAZON.md).
+
 Preise sind grobe Schätzwerte für den Einzelbezug. Bei AliExpress ist es meist günstiger, die Lieferung dauert aber 1–3 Wochen. Amazon, Reichelt, Berrybase oder Conrad liefern schneller, sind aber teurer.
 
 > **Bedrahtet statt SMD:** Wo im Schaltplan ein SMD-Bauteil steht, ist hier, wenn möglich, ein bedrahteter Ersatz für das Steckbrett genannt. Er ist elektrisch gleichwertig. Für die wenigen reinen SMD-Teile gibt es Adapterplatinen (Pos. 1.9).
